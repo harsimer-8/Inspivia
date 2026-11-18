@@ -1,0 +1,217 @@
+openapi: 3.0.3
+info:
+  title: INSPIVIA AI Service — Spring Boot ↔ FastAPI contract
+  version: 1.0.0
+  description: |
+    Authoritative contract between the Spring Boot backend (client) and the Python FastAPI AI service (server).
+    Owned jointly; any change requires a version bump and agreement from both sides.
+
+    Rules
+    - JSON bodies use snake_case on this internal hop (the frontend-facing Spring API is camelCase).
+    - Every request carries `X-Service-Key` (shared secret, from env) and `X-Request-Id` (UUID). The same UUID is sent as `request_id` in the body and MUST be echoed in the response body.
+    - The service is stateless: Spring sends all context (profile + bounded chat history). The service never reads or writes the INSPIVIA database.
+    - Spring tolerates extra response fields (additive changes are non-breaking). Unknown enum values, missing required fields or out-of-range values are treated as an invalid response (HTTP 502 to the frontend).
+    - Responses must be advisory in tone; `disclaimer` is required on every generative response.
+    - Gemini credentials exist only in the Python service environment.
+servers:
+  - url: http://ai-service:8000
+paths:
+  /health:
+    get:
+      summary: Liveness/readiness (no auth required)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HealthResponse' }
+  /api/v1/ai/chat:
+    post:
+      summary: AI mentor chat turn
+      security: [{ serviceKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ChatRequest' }
+      responses:
+        '200':
+          description: Assistant reply
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChatResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/roadmap:
+    post:
+      summary: Generate a personalised learning roadmap (proposal only; Spring decides whether to persist)
+      security: [{ serviceKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoadmapRequest' }
+      responses:
+        '200':
+          description: Roadmap
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoadmapResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/ai/project-recommendations:
+    post:
+      summary: Recommend projects for a student
+      security: [{ serviceKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProjectRecommendationRequest' }
+      responses:
+        '200':
+          description: Recommendations
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectRecommendationResponse' }
+        default: { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    serviceKey: { type: apiKey, in: header, name: X-Service-Key }
+  responses:
+    Error:
+      description: |
+        Error. Suggested statuses: 401 bad key, 422 invalid request, 429 rate limited by provider, 502 Gemini failure, 503 not ready.
+        Spring maps 429/5xx → 503 to the frontend, any other non-2xx → 502.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+  schemas:
+    Level: { type: string, enum: [BEGINNER, INTERMEDIATE, ADVANCED] }
+    SkillLevel:
+      type: object
+      required: [name, level]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        level: { $ref: '#/components/schemas/Level' }
+    StudentContext:
+      description: Minimal profile data. No email, phone, password or other identifiers beyond an opaque id.
+      type: object
+      required: [student_id, interests, skills]
+      properties:
+        student_id: { type: string, format: uuid }
+        first_name: { type: string, maxLength: 80, nullable: true }
+        degree: { type: string, maxLength: 120, nullable: true }
+        current_year: { type: integer, minimum: 1, maximum: 8, nullable: true }
+        interests: { type: array, maxItems: 20, items: { type: string, minLength: 1, maxLength: 80 } }
+        skills: { type: array, maxItems: 40, items: { $ref: '#/components/schemas/SkillLevel' } }
+        career_goals: { type: string, maxLength: 2000, nullable: true }
+        selected_domain: { type: string, maxLength: 80, nullable: true }
+    ChatTurn:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [USER, ASSISTANT] }
+        content: { type: string, minLength: 1, maxLength: 8000 }
+    ChatRequest:
+      type: object
+      required: [request_id, student, history, message]
+      properties:
+        request_id: { type: string, format: uuid }
+        student: { $ref: '#/components/schemas/StudentContext' }
+        history: { type: array, maxItems: 20, items: { $ref: '#/components/schemas/ChatTurn' }, description: Oldest first, excludes the new message }
+        message: { type: string, minLength: 1, maxLength: 4000 }
+        locale: { type: string, default: en, maxLength: 10 }
+    ChatResponse:
+      type: object
+      required: [request_id, reply, suggested_follow_ups, disclaimer]
+      properties:
+        request_id: { type: string, format: uuid }
+        reply: { type: string, minLength: 1, maxLength: 8000 }
+        suggested_follow_ups: { type: array, maxItems: 4, items: { type: string, minLength: 1, maxLength: 200 } }
+        disclaimer: { type: string, minLength: 1, maxLength: 500 }
+    RoadmapRequest:
+      type: object
+      required: [request_id, student, domain, duration_weeks, hours_per_week]
+      properties:
+        request_id: { type: string, format: uuid }
+        student: { $ref: '#/components/schemas/StudentContext' }
+        domain: { type: string, minLength: 1, maxLength: 80 }
+        duration_weeks: { type: integer, minimum: 4, maximum: 52 }
+        hours_per_week: { type: integer, minimum: 1, maximum: 40 }
+    Resource:
+      type: object
+      required: [title, url, type]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        url: { type: string, maxLength: 500, description: Must be absolute http(s). Spring drops anything else. }
+        type: { type: string, enum: [ARTICLE, VIDEO, COURSE, BOOK, DOCS, OTHER] }
+    RoadmapStep:
+      type: object
+      required: [position, title, description, estimated_weeks, skills, resources]
+      properties:
+        position: { type: integer, minimum: 1, description: Contiguous, starting at 1 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 2000 }
+        estimated_weeks: { type: integer, minimum: 1, maximum: 52 }
+        skills: { type: array, maxItems: 10, items: { type: string, minLength: 1, maxLength: 80 } }
+        resources: { type: array, maxItems: 6, items: { $ref: '#/components/schemas/Resource' } }
+    RoadmapResponse:
+      type: object
+      required: [request_id, title, summary, steps, disclaimer]
+      properties:
+        request_id: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        summary: { type: string, minLength: 1, maxLength: 2000 }
+        steps: { type: array, minItems: 1, maxItems: 20, items: { $ref: '#/components/schemas/RoadmapStep' } }
+        disclaimer: { type: string, minLength: 1, maxLength: 500 }
+    ProjectRecommendationRequest:
+      type: object
+      required: [request_id, student, count, exclude_titles]
+      properties:
+        request_id: { type: string, format: uuid }
+        student: { $ref: '#/components/schemas/StudentContext' }
+        domain: { type: string, maxLength: 80, nullable: true }
+        difficulty: { allOf: [{ $ref: '#/components/schemas/Level' }], nullable: true }
+        count: { type: integer, minimum: 1, maximum: 5 }
+        exclude_titles: { type: array, maxItems: 20, items: { type: string, maxLength: 200 }, description: Projects the student is already enrolled in }
+    Milestone:
+      type: object
+      required: [position, title, description]
+      properties:
+        position: { type: integer, minimum: 1 }
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 1000 }
+    ProjectIdea:
+      type: object
+      required: [title, description, difficulty, technologies, estimated_hours, milestones, rationale]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: string, minLength: 1, maxLength: 3000 }
+        difficulty: { $ref: '#/components/schemas/Level' }
+        technologies: { type: array, minItems: 1, maxItems: 12, items: { type: string, minLength: 1, maxLength: 60 } }
+        estimated_hours: { type: integer, minimum: 1, maximum: 1000 }
+        milestones: { type: array, minItems: 1, maxItems: 10, items: { $ref: '#/components/schemas/Milestone' } }
+        rationale: { type: string, minLength: 1, maxLength: 1000 }
+    ProjectRecommendationResponse:
+      type: object
+      required: [request_id, projects, disclaimer]
+      properties:
+        request_id: { type: string, format: uuid }
+        projects: { type: array, minItems: 1, maxItems: 5, items: { $ref: '#/components/schemas/ProjectIdea' } }
+        disclaimer: { type: string, minLength: 1, maxLength: 500 }
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [ok] }
+        service: { type: string }
+        version: { type: string }
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: UPSTREAM_MODEL_ERROR }
+            message: { type: string }
