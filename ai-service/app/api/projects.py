@@ -12,6 +12,7 @@ from app.schemas.projects import (
     ProjectRecommendationRequest,
     ProjectRecommendationResponse,
 )
+from app.gemini_service import GeminiRateLimitError
 
 router = APIRouter()
 
@@ -74,7 +75,16 @@ def generate_project_recommendations(
             )
 
         return recommendations
-
+    except GeminiRateLimitError:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "code": "MODEL_RATE_LIMITED",
+                    "message": "The AI service is receiving too many requests. Please try again shortly."
+                }
+            }
+        )
     except (json.JSONDecodeError, ValidationError, ValueError) as error:
         print(f"Invalid Gemini project response: {error}")
 

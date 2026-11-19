@@ -1,7 +1,8 @@
 from uuid import UUID
 from enum import Enum
 from typing import Annotated
-from pydantic import BaseModel, Field, StringConstraints, model_validator
+from pydantic import BaseModel, Field, StringConstraints, model_validator, field_validator
+from urllib.parse import urlparse
 
 
 from app.schemas.chat import BaseSchema, StudentContext
@@ -38,6 +39,16 @@ class Resource(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     url: str = Field(max_length=500)
     type: ResourceType
+
+    @field_validator("url")
+    @classmethod
+    def validate_http_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("Resource URL must be an absolute HTTP(S) URL.")
+
+        return value
 
 
 class RoadmapStep(BaseModel):

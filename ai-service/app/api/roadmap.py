@@ -10,6 +10,7 @@ from app.core.security import verify_service_key
 from app.gemini_service import ask_gemini_json
 from app.prompts.roadmap_prompts import build_roadmap_prompt
 from app.schemas.roadmap import RoadmapRequest, RoadmapResponse
+from app.gemini_service import GeminiRateLimitError
 
 
 router = APIRouter()
@@ -65,6 +66,17 @@ def generate_roadmap(
                 "error": {
                     "code": "INVALID_MODEL_RESPONSE",
                     "message": "The AI mentor generated an invalid roadmap. Please try again."
+                }
+            }
+        )
+
+    except GeminiRateLimitError:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "code": "MODEL_RATE_LIMITED",
+                    "message": "The AI service is receiving too many requests. Please try again shortly."
                 }
             }
         )

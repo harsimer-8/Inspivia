@@ -2,6 +2,11 @@ import os
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from google.genai.errors import APIError
+
+
+class GeminiRateLimitError(Exception):
+    pass
 
 #load variables from .env
 load_dotenv()
@@ -16,25 +21,41 @@ if not api_key:
 client= genai.Client(api_key=api_key)
 
 def ask_gemini(prompt: str) -> str:
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=prompt
-    )
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt
+        )
+        return response.text
 
-    return response.text
+    except APIError as error:
+        if error.code == 429:
+            raise GeminiRateLimitError(
+                "Gemini rate limit exceeded."
+            ) from error
+
+        raise
 
 
 def ask_gemini_json(prompt: str) -> str:
-    response = client.models.generate_content(
-        model="gemini-3.5-flash-lite",
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json"
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.5-flash-lite",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
         )
-    )
 
-    if not response.text:
-        raise ValueError("Gemini returned an empty response.")
+        if not response.text:
+            raise ValueError("Gemini returned an empty response.")
 
-    return response.text
+        return response.text
 
+    except APIError as error:
+        if error.code == 429:
+            raise GeminiRateLimitError(
+                "Gemini rate limit exceeded."
+            ) from error
+
+        raise

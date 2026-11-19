@@ -53,7 +53,11 @@ def home():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {
+        "status": "ok",
+        "service": "inspivia-ai",
+        "version": "1.0.0"
+    }
 
 '''if __name__ == "__main__":
     import uvicorn

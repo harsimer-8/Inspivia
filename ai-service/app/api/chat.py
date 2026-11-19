@@ -8,6 +8,8 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.prompts.chat_prompts import build_chat_prompt
 from app.gemini_service import ask_gemini
 from app.core.security import verify_service_key
+from app.gemini_service import GeminiRateLimitError
+
 
 router = APIRouter()
 
@@ -36,6 +38,16 @@ def chat(
     try:
         response = ask_gemini(prompt)
 
+    except GeminiRateLimitError:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": {
+                    "code": "MODEL_RATE_LIMITED",
+                    "message": "The AI service is receiving too many requests. Please try again shortly."
+                }
+            }
+        )
     except Exception as error:
         print(f"Gemini API error: {error}")
 
