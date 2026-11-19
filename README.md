@@ -2,6 +2,10 @@
 
 The current package contains database migrations, configuration, Docker setup, API documentation, and the Spring AI integration client. Authentication and the remaining domain modules are not implemented yet, so this package is not a runnable MVP.
 
+## Frontend
+
+The Next.js frontend is in `frontend/`. From that directory, install its dependencies with `npm install` and start the development server with `npm run dev`.
+
 ## AI shared-secret setup
 
 Generate one secret:
