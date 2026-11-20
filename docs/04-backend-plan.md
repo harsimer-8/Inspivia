@@ -1,15 +1,15 @@
 # INSPIVIA — Complete Backend Plan (aligned to Product & Development Plan v1.0 and the supplied frontend)
 
-Status legend: ✅ done and verified · 🟡 written, not compiled/tested · ⬜ not started
+Status legend: ✅ done and verified · 🟡 implemented, not integration-tested · ⬜ not started
 
 ## 0. Ownership
 | Part | Owner | Backend's relationship |
 |---|---|---|
 | Next.js frontend | frontend developer | Consumes `/api/v1`; backend never edits it |
 | FastAPI AI service (Gemini, prompts, RAG, validation) | AI developer | Spring calls it through `ai/` client; contract in `contracts/ai-service.openapi.yaml` |
-| Spring Boot backend + PostgreSQL | **you** | This plan |
+| Python FastAPI backend + PostgreSQL | **you** | This plan |
 
-**Where the PDF and your confirmed decision differ:** the PDF lists "Spring AI + pgvector". Your later decision overrides it: no Spring AI in Java. RAG/embeddings/vector search belong to the Python service (it can use its own vector store, with content supplied by Spring or curated separately). Java stores curated `resources` and passes only student context.
+**Where the PDF and your confirmed decision differ:** the PDF lists "Spring AI + pgvector". Gemini, prompts, and AI generation belong to the separate AI service. The Python backend owns auth, data access, and PostgreSQL; RAG/embeddings/vector search belong to the AI service.
 
 ## 1. Release mapping (PDF §13 → backend)
 | Release | Backend scope | Status |
@@ -17,7 +17,7 @@ Status legend: ✅ done and verified · 🟡 written, not compiled/tested · ⬜
 | R2 Accounts & core | Auth, JWT/refresh rotation, email verification, password reset, roles, student profile, domain catalog | ⬜ (schema ✅) |
 | R3 Mentorship | Mentor profiles/expertise/availability/capacity, **automatic assignment**, waitlist, admin override + audit, mentor dashboard | ⬜ (schema ✅) |
 | R4 Student workspace | Dashboard, roadmap storage/progress, student projects, saved resources, portfolio basics | ⬜ (schema ✅) |
-| R5 AI Mentor | Chat/roadmap/project-recommendation endpoints calling FastAPI | 🟡 client + DTOs + 11 tests written by another session, never run; needs real `StudentContextProvider` and conversation store |
+| R5 AI Mentor | Chat/roadmap/project-recommendation endpoints calling the AI service | 🟡 Python client and PostgreSQL-backed student context/conversation stores implemented; backend tests pass, live service integration not run |
 | R6 Feedback (+RAG on Python side) | Typed feedback, issue reports, admin review | ⬜ (schema ✅) |
 | R7 Ecosystem | Opportunities, teams, analytics | ⬜ (schema ✅) |
 
@@ -58,7 +58,7 @@ Mapping to PDF tables: `roles`→`users.role`; `mentor_assignments`→`mentorshi
 ## 6. Build and test plan (what "done" will mean)
 | Step | Work | Proof required |
 |---|---|---|
-| 1 | Security, JWT, auth flows, exception handling, mail | `mvn test`: unit + MockMvc + Testcontainers-or-local-PG integration tests green |
+| 1 | Security, JWT, auth flows, exception handling, mail | `python -m pytest`: unit + API + PostgreSQL integration tests green |
 | 2 | Profiles, domains/skills, student onboarding | tests green |
 | 3 | Mentor module + matching engine + waitlist + admin override | concurrency test (capacity never exceeded), no-match test |
 | 4 | Projects, roadmaps, student projects, guidance, sessions | tests green |
@@ -66,4 +66,4 @@ Mapping to PDF tables: `roles`→`users.role`; `mentor_assignments`→`mentorshi
 | 6 | AI layer wiring against a mock FastAPI | contract tests green |
 | 7 | Docker compose up, Swagger reachable, end-to-end scripted journey (register → verify → domain → assigned mentor → AI call via mock → feedback) | script output captured |
 
-**Blocker:** steps 1–7 need Maven Central; it is unreachable from this sandbox, so nothing Java can be compiled or run here. See the reply for the options.
+The backend has been ported to Python FastAPI. Its unit tests run with `python -m pytest`; integration work requiring a live PostgreSQL instance and the external AI service remains to be verified.

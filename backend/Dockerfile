@@ -1,14 +1,17 @@
-FROM maven:3.9-eclipse-temurin-21 AS build
-WORKDIR /build
-COPY pom.xml .
-RUN mvn -q -B dependency:go-offline
-COPY src ./src
-RUN mvn -q -B -DskipTests package
+FROM python:3.12-slim
 
-FROM eclipse-temurin:21-jre
-RUN useradd --system --uid 10001 inspivia
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
 WORKDIR /app
-COPY --from=build /build/target/inspivia-backend-*.jar app.jar
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app ./app
+COPY src/main/resources/db/migration ./migrations
+
+RUN useradd --system --uid 10001 inspivia \
+    && chown -R inspivia:inspivia /app
 USER inspivia
+
 EXPOSE 8080
-ENTRYPOINT ["java","-XX:MaxRAMPercentage=75","-jar","/app/app.jar"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

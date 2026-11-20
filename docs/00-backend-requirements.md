@@ -11,7 +11,7 @@ Scope: **backend only**. The frontend ZIP was read, not changed (the copy in `in
 Auth & RBAC · users/profiles · students · mentors (+applications, expertise, availability) · projects/milestones/tasks/enrollment/submissions/reviews · mentorships & sessions · feedback · roadmap storage & progress · contact · notifications · admin · AI integration client.
 
 ## Decisions carried forward
-See `02-architecture.md`. Where the later brief supersedes it: **AI endpoints in FastAPI are `/api/v1/ai/{chat,roadmap,project-recommendations}` + `/health`; domain and mentor recommendation are NOT AI-service features.** Mentor discovery is implemented in Java as a filter/search over expertise and availability (database queries, no model, no prompts).
+See `02-architecture.md`. Where the later brief supersedes it: **AI endpoints in FastAPI are `/api/v1/ai/{chat,roadmap,project-recommendations}` + `/health`; domain and mentor recommendation are NOT AI-service features.** Mentor discovery is planned as a filter/search over expertise and availability (database queries, no model, no prompts); that business route is not yet implemented.
 
 ## Endpoint list (final, refined from the brief)
 Auth: `register/student`, `register/mentor`, `login`, `refresh`, `logout`, `verify-email`, `resend-verification`, `forgot-password`, `reset-password`, `GET me`.

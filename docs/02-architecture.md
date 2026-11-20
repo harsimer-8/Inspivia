@@ -1,27 +1,27 @@
 # INSPIVIA — Stage 2: Architecture
 
-> **Amendment (confirmed by the product owner):** the AI service is built independently in Python/FastAPI by another team member and owns Gemini, prompts and response validation. Spring Boot is only an HTTP client. AI scope is chat, roadmap and project recommendations. See `03-ai-integration.md` and `contracts/ai-service.openapi.yaml`. Where this document conflicts with that file, the amendment wins. Superseded below: decisions 5 and 6, section 5, the AI endpoint list, the `ai-service/` build in Stage 5, and the "mentor matching via FastAPI" design.
+> **Implementation update:** the backend runtime is Python/FastAPI (`backend/`), and the separate Python AI service (`ai-service/`) owns Gemini and prompts. Both communicate over HTTP using the shared contract. PostgreSQL migrations remain unchanged. Auth and non-AI product routes listed below are still planned, not implemented. See `03-ai-integration.md` and `contracts/ai-service.openapi.yaml` for the current AI contract.
 
 ## 1. System overview
 
 ```
-Browser ──► Next.js 14 (frontend/)  ──REST/JSON──►  Spring Boot 3 (backend/)  ──REST + API key──►  FastAPI (ai-service/) ──► LLM provider
+Browser ──► Next.js 14 (frontend/)  ──REST/JSON──►  FastAPI (backend/)  ──REST + API key──►  FastAPI (ai-service/) ──► LLM provider
                                                         │
                                                     PostgreSQL 16 (Flyway)         SMTP (MailHog in dev)
 ```
-- Three independently deployable services; only Spring Boot touches the database.
-- **Spring Boot is the source of truth.** FastAPI is stateless: every call carries the context it needs and returns a structured suggestion. It never writes to the DB and has no DB credentials.
-- Spring Boot persists `AIConversation`/`AIMessage` and recommendations it chooses to keep.
+- Three independently deployable services; the backend touches PostgreSQL, while the AI service is stateless and has no database credentials.
+- **The backend is the source of truth.** Each AI request carries the context needed by the AI service, which returns a structured suggestion.
+- The backend persists AI conversation history; generated recommendations remain proposals until a student explicitly saves them.
 
 ## 2. Key decisions (and why)
 
-1. **Modular monolith** for the backend (package-by-feature under `com.inspivia`), not microservices. The only real service boundary is AI, because its runtime (Python) and scaling profile differ.
+1. **Modular monolith** for the backend (`backend/app`), not microservices. The only real service boundary is AI, because its scaling profile differs.
 2. **Tokens.** Access JWT (15 min, HS256 with ≥256-bit secret from env, claims: `sub`, `role`, `jti`). Refresh token is an opaque random 256-bit value, **stored hashed (SHA-256)** in `refresh_tokens` with `family_id`; rotated on every use. Reuse of a rotated token revokes the entire family (theft detection).
 3. **Where the browser keeps them.** Access token in memory only; refresh token in an `HttpOnly; Secure; SameSite=Lax` cookie scoped to `/api/v1/auth`. Next.js rewrites `/api/v1/*` to the backend so the browser sees a single origin (no third-party cookie problems), while CORS stays locked to configured origins for direct/non-proxied use. Frontend and backend remain independently deployable.
-4. **Spring→FastAPI auth.** Shared service key in `X-Service-Key` (constant-time compare) over the private Docker network; FastAPI is not published publicly. Timeouts (connect 2s, read 30s), 1 retry on idempotent calls, circuit breaker (Resilience4j) → graceful "AI unavailable" 503.
-5. **Mentor discovery is deterministic Spring logic** (approved + active + available + capacity, filtered by domain/skills). No AI involved (see 03-ai-integration.md §5).
-6. **AI output is advisory and proposal-only.** Spring validates every response against the contract and never persists AI output without an explicit student action.
-7. **Rate limiting** via Bucket4j (in-memory per instance in v1; Redis-backed later): login, register, forgot-password, contact, AI endpoints.
+4. **Backend→AI service auth.** Shared service key in `X-Service-Key` (constant-time compare) over the private Docker network; the AI service is not published publicly. Backend timeouts (connect 2s, read 30s).
+5. **Mentor discovery is planned deterministic backend logic** (approved + active + available + capacity, filtered by domain/skills). No AI involved (see 03-ai-integration.md §5); this route is not implemented yet.
+6. **AI output is advisory and proposal-only.** The backend validates responses against the contract and does not persist recommendations without an explicit student action.
+7. **Rate limiting**: an in-memory limiter exists in the backend; apply and validate endpoint-specific production limits before exposing new routes.
 8. **IDs** are UUIDs (v4) in the API; internal PKs `uuid` too, to avoid enumeration. Timestamps `timestamptz`.
 9. **Errors** use RFC 7807 `application/problem+json` with `errors[]` per-field details.
 10. **Pagination**: `page`, `size` (max 50), `sort`; response `{content, page, size, totalElements, totalPages}`.
@@ -88,11 +88,11 @@ Superseded: see `contracts/ai-service.openapi.yaml` and `docs/03-ai-integration.
 
 ## 6. Delivery plan (matches your stages)
 
-| Stage | Deliverable | Verification I will run |
+| Stage | Deliverable | Verification |
 |---|---|---|
-| 3 | Maven project, Flyway V1, auth, users, RBAC | Build + auth integration tests (Testcontainers) |
-| 4 | Students, mentors, projects, mentorship, roadmap, feedback, contact | Service + MockMvc tests |
-| 5 | Spring-side AI integration layer (client, DTOs, failure handling). FastAPI is built by a teammate against the shared contract | Client tests against a local HTTP server |
+| 3 | Python backend runtime, migrations, auth, users, RBAC | Backend unit tests; auth routes still pending |
+| 4 | Students, mentors, projects, mentorship, roadmap, feedback, contact | API/service tests; routes still pending |
+| 5 | Backend AI integration layer. AI service is built against the shared contract | Backend tests against mocked/external AI client |
 | 6 | Next.js API client, auth, contact wiring, new pages | `next build` + typecheck |
 | 7 | Dockerfiles, Compose, README | `docker compose config`, full-stack smoke test |
 

@@ -6,6 +6,12 @@
 # Java build output
 backend/target/
 
+# Python build and test output
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
 # IDE and OS files
 .idea/
 .vscode/

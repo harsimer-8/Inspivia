@@ -1,0 +1,1 @@
+"""INSPIVIA FastAPI backend."""

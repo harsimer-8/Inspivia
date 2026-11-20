@@ -1,10 +1,10 @@
-# INSPIVIA — AI Integration (Spring Boot side) and shared contract
+# INSPIVIA — Backend AI integration and shared contract
 
-Status: **contract and Java integration layer written. Not compiled or run** (see "Verification status").
+Status: The contract remains authoritative. The backend integration is implemented in Python under `backend/app/`; see the backend README for configuration and tests.
 
 ## 1. Ownership (confirmed decision)
 
-| Spring Boot (this repo, `backend/`) | Python FastAPI (separate team member, `ai-service/` or its own repo) |
+| Python FastAPI backend (this repo, `backend/`) | Python AI service (`ai-service/` or its own repo) |
 |---|---|
 | AuthN/AuthZ, rate limiting, user & profile data, PostgreSQL | Gemini integration and credentials |
 | Builds the request payload from the DB | Prompt engineering, response generation |
@@ -12,14 +12,14 @@ Status: **contract and Java integration layer written. Not compiled or run** (se
 | Validates + sanitises the response, shapes the frontend response | Stateless: no DB access, no writes to INSPIVIA data |
 | Stores chat history in PostgreSQL | |
 
-Flow: `Frontend → Spring Boot (auth, context) → FastAPI → Gemini → FastAPI → Spring Boot (validate) → Frontend`.
-Not used anywhere: Spring AI, a Gemini SDK in Java, prompts in Java.
+Flow: `Frontend → FastAPI backend (auth, context) → FastAPI AI service → Gemini → FastAPI AI service → backend (validate) → Frontend`.
+Gemini credentials and prompts belong only in the AI service.
 
 ## 2. Shared contract (single source of truth)
 
 - `contracts/ai-service.openapi.yaml` is **authoritative**.
 - `contracts/python/schemas.py` are reference Pydantic v2 models for the Python developer (checked: parse, validate and reject non-contiguous positions). No AI logic in them.
-- `backend/.../ai/contract/AiContract.java` is the Java mirror (records + Bean Validation).
+- `backend/app/ai_contract.py` contains the backend's validated Python contract models.
 
 | Method & path (FastAPI) | Request | Response |
 |---|---|---|
@@ -31,7 +31,7 @@ Not used anywhere: Spring AI, a Gemini SDK in Java, prompts in Java.
 Shared secret setup:
 
 ```env
-# Spring backend (.env)
+# Backend (.env)
 AI_SERVICE_BASE_URL=http://host.docker.internal:8000  # AI service on Windows host
 AI_SERVICE_API_KEY=<the same generated secret>
 
@@ -40,18 +40,18 @@ AI_SERVICE_API_KEY=<the same generated secret>
 GEMINI_API_KEY=<Gemini credential>
 ```
 
-Generate the shared secret once, for example with `openssl rand -hex 32`, and never set Gemini credentials in the Spring backend. Spring sends the shared secret in `X-Service-Key`; the FastAPI service must compare it in constant time. A 401/403 response means the two `AI_SERVICE_API_KEY` values differ or the Python service is not reading the variable.
+Generate the shared secret once, for example with `openssl rand -hex 32`, and never set Gemini credentials in the backend. The backend sends the shared secret in `X-Service-Key`; the AI service must compare it in constant time. A 401/403 response means the two `AI_SERVICE_API_KEY` values differ or the AI service is not reading the variable.
 
 Conventions the Python side must follow:
-1. Header `X-Service-Key` required on `/api/v1/*` (compare in constant time). `X-Request-Id` is sent; the same UUID is in the body as `request_id` and **must be echoed** (Spring rejects mismatches).
-2. snake_case JSON. Extra response fields are tolerated; missing fields, unknown enum values, out-of-range values or non-contiguous `position`s → Spring returns 502 to the frontend.
+1. Header `X-Service-Key` required on `/api/v1/*` (compare in constant time). `X-Request-Id` is sent; the same UUID is in the body as `request_id` and **must be echoed** (the backend rejects mismatches).
+2. snake_case JSON. Extra response fields are tolerated; missing fields, unknown enum values, out-of-range values or non-contiguous `position`s → the backend returns 502 to the frontend.
 3. Every generative response includes `disclaimer`; wording must be advisory, never a guarantee.
-4. Errors: `{"error":{"code","message"}}`. Use 429 for provider rate limiting, 5xx for Gemini failures. Spring maps 429/5xx → 503 and other 4xx → 502.
-5. Timeouts: Spring waits up to 30 s (read) and 2 s (connect). Target < 20 s per call.
-6. Spring sends **no email, password, token or other identifiers** beyond an opaque `student_id`; chat history is capped (default 10 turns, max 20).
-7. Resource URLs should be absolute https; Spring drops anything that is not http(s).
+4. Errors: `{"error":{"code","message"}}`. Use 429 for provider rate limiting, 5xx for Gemini failures. The backend maps 429/5xx → 503 and other 4xx → 502.
+5. Timeouts: the backend waits up to 30 s (read) and 2 s (connect). Target < 20 s per call.
+6. The backend sends **no email, password, token or other identifiers** beyond an opaque `student_id`; chat history is capped (default 10 turns, max 20).
+7. Resource URLs should be absolute https; the backend drops anything that is not http(s).
 
-## 3. Frontend-facing endpoints (Spring Boot)
+## 3. Frontend-facing endpoints (Python backend)
 
 All require a valid access JWT with role `STUDENT`; `GET /status` requires `ADMIN`. Errors are RFC 7807 with a `code`.
 
@@ -62,24 +62,24 @@ All require a valid access JWT with role `STUDENT`; `GET /status` requires `ADMI
 | `POST /api/v1/ai/project-recommendations` | `{domain?, difficulty?, count? 1–5}` | `{projects[], disclaimer, generatedAt}` | same |
 | `GET /api/v1/ai/status` | – | `{available, version}` | – |
 
-Roadmap and project results are **proposals**. Saving a roadmap or enrolling in a project is a separate explicit Spring endpoint (Stage 4), so AI output never silently becomes core data.
+Roadmap and project results are **proposals**. Saving a roadmap or enrolling in a project will require a separate explicit backend endpoint, so AI output never silently becomes core data.
 
-## 4. Java layer layout (`com.inspivia.ai`)
+## 4. Python layer layout (`backend/app`)
 
 ```
-config/    AiServiceProperties (env-bound, validated), AiClientConfig (RestClient, timeouts, X-Service-Key, snake_case mapper private to this client)
-contract/  AiContract              shared DTOs (mirror of the OpenAPI file)
-client/    AiServiceClient (port), RestAiServiceClient (HTTP), AiResponsePolicy (request_id echo, position checks, URL sanitising)
-service/   AiGatewayService        orchestration; ports StudentContextProvider, AiConversationStore
-web/       AiController, AiApi (frontend DTOs), AiExceptionHandler (503 / 502 / 404)
-exception/ AiServiceUnavailableException, AiInvalidResponseException, AiConversationNotFoundException
+config.py       environment-backed configuration and validation
+ai_contract.py  validated request/response models
+ai_client.py    HTTP client, request ID checks and response validation
+ai_service.py   orchestration; uses SQL-backed student context and conversation storage
+ai_store.py     PostgreSQL-backed student context and conversation adapters
+main.py         authenticated frontend endpoints and error handling
 ```
 Decisions:
-- **Ports, not entities.** `StudentContextProvider` and `AiConversationStore` are interfaces, implemented in Stage 4 over PostgreSQL. The AI layer therefore never depends on JPA and the Python service can be connected without touching the rest of the backend. Until Stage 4 supplies them the application context will not start, by design (no in-memory substitute for the database).
+- **SQL-backed stores.** Student context and conversation history are read and written in PostgreSQL. The AI service remains stateless.
 - **No DB transaction across the HTTP call.** A slow model must not hold a connection. The user message and reply are saved together only after a valid reply.
 - **Fail closed.** Anything off-contract is rejected rather than "repaired", except dropping non-http(s) links.
 - **No retries yet.** Generation calls are not idempotent in cost; add a single retry on connect failure and a circuit breaker (Resilience4j) if load testing shows a need.
-- Rate limiting for these endpoints is added with the Stage 3 security work (they cost money).
+- Endpoint-specific rate limits should be validated before production exposure (these requests incur model cost).
 
 ## 5. Removed from AI scope
 
@@ -87,7 +87,7 @@ Your update lists only chat, roadmap and project recommendations for Python. Tha
 - **AI domain recommendation**
 - **AI mentor recommendation/matching**
 
-I have not rebuilt them in Java as AI logic, per "do not duplicate AI business logic". Mentor discovery will be plain, deterministic Spring filtering (domain, skills, availability, approval status), which is normal business logic. If you want AI-ranked mentor or domain suggestions, say so and I'll add them to the contract as new endpoints for the Python developer.
+Mentor discovery is intended as plain, deterministic backend filtering (domain, skills, availability, approval status), not AI logic. That business feature is not implemented yet.
 
 ## 6. Verification status (honest)
 
@@ -95,12 +95,11 @@ I have not rebuilt them in Java as AI logic, per "do not duplicate AI business l
 |---|---|
 | OpenAPI file | Parsed successfully with a YAML parser |
 | Pydantic reference schemas | Imported and exercised with pydantic; sample payload accepted, non-contiguous roadmap rejected |
-| Java sources | Syntax-checked with `javac`: **no syntax errors**; only "package does not exist" errors because Maven Central is not reachable from this sandbox |
-| `RestAiServiceClientTest` (11 tests: key + request-id headers, snake_case parsing, 500, 429, read timeout, connection refused, bad JSON, missing field, request-id mismatch, unknown enum, URL sanitising, position gap) | **Written, not executed** |
-| Controller/handler/gateway | **Written, not executed**; no test yet (needs the Stage 3 security setup) |
+| Backend Python tests | `python -m pytest backend/tests -q`: 15 passed |
+| Database startup/migrations | Not exercised against a live PostgreSQL server in this environment |
 
-To run on your machine: `cd backend && mvn -q test`. Please send me any failure output and I'll fix it.
+To run tests: `cd backend && python -m pytest -q`.
 
 ## 7. Local development without the Python service
 
-Until the teammate's service exists, either run the Python developer's skeleton from `contracts/python/schemas.py`, or let me add a small canned-response stub that satisfies the contract so you can exercise the frontend end to end. I haven't added one, to avoid duplicating their work unasked.
+The AI service is in `ai-service/`; use its documented configuration and mock the HTTP client in backend tests for isolated testing.
