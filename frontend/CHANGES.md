@@ -29,3 +29,9 @@ Put the photo at `public/team/wallabhi-saxena.jpg` (square, min 600x600). No cod
 - Footer social icons: removed generic GitHub / Discord / X links (they pointed to the sites' homepages).
 - Founder card "EST. 2024" (also in preloader) -> "EST. 2026" to match the Journey launch date.
 - Placeholder email "ananya@banasthali.in" -> "ananya@university.edu".
+
+## Backend integration (feature/frontend-backend-integration)
+- Mock auth (`lib/auth.ts`, in-memory students, demo account) removed. Auth now goes through server route handlers to the Python backend using HttpOnly JWT cookies.
+- AI companion calls `POST /api/v1/ai/chat` via the backend; no direct Gemini calls.
+- New: `lib/api.ts`, `lib/session-context.tsx`, `lib/server/*`, `middleware.ts`, `.env.example`.
+- See `docs/05-frontend-integration.md` for the contract, missing backend endpoints and deployment steps.

@@ -20,9 +20,11 @@ import {
   Flame,
   Bell,
 } from "lucide-react";
+import { apiFetch } from "@/lib/api";
+import type { SessionUser } from "@/lib/types";
 
 interface StudentSidebarProps {
-  user: any;
+  user: SessionUser | null;
 }
 
 export default function StudentSidebar({ user }: StudentSidebarProps) {
@@ -31,12 +33,12 @@ export default function StudentSidebar({ user }: StudentSidebarProps) {
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
-      router.push("/");
-      router.refresh();
+      await apiFetch("/api/auth/logout", { method: "POST", redirectOnUnauthorized: false });
     } catch {
-      router.push("/");
+      /* the session cookie is cleared server-side; leave regardless */
     }
+    router.push("/");
+    router.refresh();
   };
 
   const navItems = [

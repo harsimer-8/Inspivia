@@ -20,7 +20,16 @@ import {
   Radio,
   FileCode2,
 } from "lucide-react";
-import { DEMO_STUDENT } from "@/lib/auth";
+import { ApiError, apiFetch } from "@/lib/api";
+import { firstName, useSessionUser } from "@/lib/session-context";
+
+const PROVIDER_LABEL = "INSPIVIA AI Engine";
+const MAX_MESSAGE_LENGTH = 4000;
+
+interface CompanionReply {
+  message: string;
+  conversationId: string;
+}
 
 interface ChatMessage {
   id: string;
@@ -28,6 +37,18 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   provider?: string;
+}
+
+function companionErrorText(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return "Your session has expired. Redirecting you to sign in...";
+    if (err.status === 403) return "The AI Companion is available to student accounts only.";
+    if (err.status === 429) return "You're sending messages too quickly. Please wait a moment and try again.";
+    if (err.status === 504) return "The AI Companion took too long to respond. Please try again.";
+    if (err.status === 0) return "Could not connect to the AI Companion service. Please verify your network and retry.";
+    return err.message;
+  }
+  return "The AI Companion is unavailable right now. Please try again shortly.";
 }
 
 export default function AICompanionChatPage() {
@@ -44,22 +65,14 @@ export default function AICompanionChatPage() {
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [studentUser, setStudentUser] = useState<any>(DEMO_STUDENT);
-  const [selectedTrack, setSelectedTrack] = useState(DEMO_STUDENT.enrolledTrack);
+  const studentUser = useSessionUser();
+  const [selectedTrack, setSelectedTrack] = useState(
+    studentUser.enrolledTrack || "Full-Stack Web & Cloud Architecture"
+  );
+  // Conversation id issued by the backend; it keys the server-side history for follow-up turns.
+  const [conversationId, setConversationId] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.authenticated && data.user) {
-          setStudentUser(data.user);
-          setSelectedTrack(data.user.enrolledTrack);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const starterPrompts = [
     "Decompose my project idea into sprint tickets",
@@ -84,6 +97,7 @@ export default function AICompanionChatPage() {
   };
 
   const handleClearHistory = () => {
+    setConversationId(null);
     setMessages([
       {
         id: `msg-${Date.now()}`,
@@ -96,7 +110,7 @@ export default function AICompanionChatPage() {
 
   const handleSend = async (textToSend?: string) => {
     const query = textToSend || input;
-    if (!query.trim() || loading) return;
+    if (!query.trim() || loading || query.trim().length > MAX_MESSAGE_LENGTH) return;
 
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}`,
@@ -111,20 +125,13 @@ export default function AICompanionChatPage() {
     setStreamingText("");
 
     try {
-      const res = await fetch("/api/ai-companion", {
+      // The backend builds the student context itself and keeps history per conversationId.
+      const data = await apiFetch<CompanionReply>("/api/ai-companion", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: query.trim(),
-          studentTrack: selectedTrack,
-          studentYear: studentUser.year,
-        }),
+        json: { message: query.trim(), ...(conversationId ? { conversationId } : {}) },
       });
-
-      const data = await res.json();
-      const fullResponse =
-        data.message ||
-        "I apologize, my architectural synthesis could not be processed. Please try again.";
+      if (data.conversationId) setConversationId(data.conversationId);
+      const fullResponse = data.message;
 
       // Simulated streaming animation for smooth human-like delivery
       let currentIndex = 0;
@@ -140,7 +147,7 @@ export default function AICompanionChatPage() {
             sender: "ai-companion",
             text: fullResponse,
             timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            provider: data.provider,
+            provider: PROVIDER_LABEL,
           };
           setMessages((prev) => [...prev, aiMsg]);
           setLoading(false);
@@ -148,13 +155,13 @@ export default function AICompanionChatPage() {
           setStreamingText(fullResponse.slice(0, currentIndex));
         }
       }, 25);
-    } catch {
+    } catch (err) {
       setLoading(false);
       setStreamingText("");
       const errorMsg: ChatMessage = {
         id: `msg-${Date.now() + 1}`,
         sender: "ai-companion",
-        text: "Could not connect to the AI Companion service. Please verify your network and retry.",
+        text: companionErrorText(err),
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, errorMsg]);
@@ -190,7 +197,7 @@ export default function AICompanionChatPage() {
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             </h1>
             <p className="text-[11px] font-mono text-moss-green flex items-center gap-2">
-              <span>Scholar: {studentUser.name.split(" ")[0]} ({studentUser.year})</span>
+              <span>Scholar: {firstName(studentUser)}{studentUser.year ? ` (${studentUser.year})` : ""}</span>
               <span>•</span>
               <span className="text-rosy-brown">24/7 Verified Companion</span>
             </p>
@@ -343,6 +350,7 @@ export default function AICompanionChatPage() {
               type="text"
               placeholder={`Ask the AI Companion about project decomposition, schemas, or debugging in ${selectedTrack}...`}
               value={input}
+              maxLength={MAX_MESSAGE_LENGTH}
               onChange={(e) => setInput(e.target.value)}
               disabled={loading}
               className="w-full pl-5 pr-14 py-3.5 rounded-2xl bg-forest-green border border-beige/20 text-beige placeholder:text-beige/40 text-xs md:text-sm focus:outline-none focus:border-rosy-brown shadow-inner disabled:opacity-50"

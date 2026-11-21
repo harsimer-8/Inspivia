@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   User,
   Mail,
@@ -15,28 +15,15 @@ import {
   Edit3,
   Save,
 } from "lucide-react";
+import { useSessionUser } from "@/lib/session-context";
 
 export default function StudentProfilePage() {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const user = useSessionUser();
   const [isEditing, setIsEditing] = useState(false);
-  const [bio, setBio] = useState(
-    "2nd year engineering scholar passionate about building low-power IoT telemetry hardware and scalable full-stack web applications. Participant in Super 50 cohort."
-  );
-  const [githubUrl, setGithubUrl] = useState("https://github.com/ananya-sharma");
-  const [linkedinUrl, setLinkedinUrl] = useState("https://linkedin.com/in/ananya-sharma");
-
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.authenticated) {
-          setUser(data.user);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  // Profile details are edited locally only; persisting them needs PUT /students/me (not in the backend yet).
+  const [bio, setBio] = useState("Add a short bio so your mentors can get to know you.");
+  const [githubUrl, setGithubUrl] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
 
   const handleSave = () => {
     setIsEditing(false);
@@ -69,16 +56,16 @@ export default function StudentProfilePage() {
         {/* Left Column: Portrait & Snapshot */}
         <div className="lg:col-span-5 p-8 rounded-3xl bg-midnight-green/35 border border-beige/15 shadow-xl text-center space-y-6">
           <div className="relative w-28 h-28 mx-auto rounded-full bg-rosy-brown text-forest-green font-serif font-black text-4xl flex items-center justify-center shadow-2xl border-4 border-beige/25">
-            {user?.avatarInitials || "AS"}
+            {user.avatarInitials}
           </div>
 
           <div>
-            <h2 className="text-2xl font-serif font-bold text-beige">{user?.name || "Ananya Sharma"}</h2>
+            <h2 className="text-2xl font-serif font-bold text-beige">{user.name}</h2>
             <p className="text-xs font-mono text-moss-green font-semibold mt-1">
-              {user?.course || "B.Tech Computer Science & Engineering"}
+              {user.course || "INSPIVIA Student"}
             </p>
             <span className="inline-block mt-2 px-3 py-1 rounded-full text-[10px] font-mono uppercase bg-forest-green/80 text-beige border border-white/5">
-              {user?.year || "2nd Year"} • Super 50 Scholar
+              {user.year ? `${user.year} • ` : ""}Super 50 Scholar
             </span>
           </div>
 
@@ -86,12 +73,12 @@ export default function StudentProfilePage() {
             <div className="flex items-center justify-between">
               <span className="text-beige/50">Email:</span>
               <span className="text-beige font-semibold truncate max-w-[200px]">
-                {user?.email || "student@inspivia.org"}
+                {user.email}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-beige/50">Joined:</span>
-              <span>{user?.registeredAt || "August 2026"}</span>
+              <span>—</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-beige/50">Verification:</span>
@@ -103,24 +90,28 @@ export default function StudentProfilePage() {
           </div>
 
           <div className="pt-4 border-t border-beige/10 flex items-center justify-center gap-3">
-            <a
-              href={githubUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="p-2.5 rounded-full bg-forest-green border border-beige/20 text-beige hover:text-rosy-brown transition-colors"
-              aria-label="GitHub Profile"
-            >
-              <Github className="w-4 h-4" />
-            </a>
-            <a
-              href={linkedinUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="p-2.5 rounded-full bg-forest-green border border-beige/20 text-beige hover:text-rosy-brown transition-colors"
-              aria-label="LinkedIn Profile"
-            >
-              <Linkedin className="w-4 h-4" />
-            </a>
+            {githubUrl && (
+              <a
+                href={githubUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="p-2.5 rounded-full bg-forest-green border border-beige/20 text-beige hover:text-rosy-brown transition-colors"
+                aria-label="GitHub Profile"
+              >
+                <Github className="w-4 h-4" />
+              </a>
+            )}
+            {linkedinUrl && (
+              <a
+                href={linkedinUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="p-2.5 rounded-full bg-forest-green border border-beige/20 text-beige hover:text-rosy-brown transition-colors"
+                aria-label="LinkedIn Profile"
+              >
+                <Linkedin className="w-4 h-4" />
+              </a>
+            )}
           </div>
         </div>
 
@@ -151,7 +142,7 @@ export default function StudentProfilePage() {
             <div className="p-4 rounded-2xl bg-forest-green/70 border border-beige/10 flex items-center justify-between">
               <div>
                 <h4 className="text-base font-serif font-bold text-beige">
-                  {user?.enrolledTrack || "Full-Stack Web & Cloud Architecture"}
+                  {user.enrolledTrack || "Not selected yet"}
                 </h4>
                 <p className="text-xs text-beige/70 font-mono mt-0.5">
                   Milestones: 2 of 4 Completed // Sprint Pace: On Target

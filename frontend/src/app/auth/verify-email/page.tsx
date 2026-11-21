@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
+import { apiFetch, errorMessage } from "@/lib/api";
 import { Mail, CheckCircle2, AlertCircle, ArrowRight, ShieldCheck } from "lucide-react";
 
 function VerifyEmailForm() {
@@ -15,27 +16,35 @@ function VerifyEmailForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [emailInput, setEmailInput] = useState(emailParam);
+  const [notice, setNotice] = useState(
+    searchParams.get("sent") === "1" ? "Account created. We've sent a verification link to your email." : ""
+  );
 
+  // Verification only ever happens with the emailed token. Without one, this form re-sends the link.
   const handleVerify = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/verify-email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, email: emailInput }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Verification failed");
+      if (token) {
+        await apiFetch("/api/auth/verify-email", {
+          method: "POST",
+          json: { token },
+          redirectOnUnauthorized: false,
+        });
+        setVerified(true);
+      } else {
+        const data = await apiFetch<{ message?: string }>("/api/auth/verify-email", {
+          method: "POST",
+          json: { resend: true, email: emailInput.trim() },
+          redirectOnUnauthorized: false,
+        });
+        setNotice(data.message || "A new verification link is on its way.");
       }
-
-      setVerified(true);
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+    } catch (err) {
+      setError(errorMessage(err, "An unexpected error occurred."));
     } finally {
       setLoading(false);
     }
@@ -50,6 +59,13 @@ function VerifyEmailForm() {
         </div>
       )}
 
+      {notice && !verified && (
+        <div className="mb-6 p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200 flex items-start gap-2.5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+          <span>{notice}</span>
+        </div>
+      )}
+
       {verified ? (
         <div className="text-center space-y-4 py-4">
           <div className="w-14 h-14 mx-auto rounded-full bg-moss-green/20 border-2 border-moss-green flex items-center justify-center text-moss-green">
@@ -61,10 +77,10 @@ function VerifyEmailForm() {
           </p>
           <div className="pt-4">
             <Link
-              href="/dashboard"
+              href="/auth/login"
               className="inline-flex items-center gap-2 px-7 py-3 rounded-full bg-rosy-brown text-forest-green font-bold text-xs uppercase tracking-wider shadow-xl hover:scale-105 transition-all"
             >
-              <span>Enter Student Dashboard</span>
+              <span>Sign In to Dashboard</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
@@ -82,19 +98,21 @@ function VerifyEmailForm() {
           </div>
 
           <form onSubmit={handleVerify} className="space-y-4">
-            <div>
-              <label className="text-xs font-mono uppercase text-beige/70 font-semibold block mb-1.5">
-                Registered Student Email
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="student@inspivia.org"
-                value={emailInput}
-                onChange={(e) => setEmailInput(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-beige placeholder:text-beige/30 text-xs focus:outline-none focus:border-rosy-brown"
-              />
-            </div>
+            {!token && (
+              <div>
+                <label className="text-xs font-mono uppercase text-beige/70 font-semibold block mb-1.5">
+                  Registered Student Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="student@inspivia.org"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  className="w-full px-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-beige placeholder:text-beige/30 text-xs focus:outline-none focus:border-rosy-brown"
+                />
+              </div>
+            )}
 
             <button
               type="submit"
@@ -102,10 +120,10 @@ function VerifyEmailForm() {
               className="w-full py-3 rounded-xl bg-rosy-brown text-forest-green font-bold text-xs uppercase tracking-wider hover:bg-rosy-brown/90 shadow-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50"
             >
               {loading ? (
-                <span>Confirming Student Verification...</span>
+                <span>{token ? "Confirming Student Verification..." : "Sending..."}</span>
               ) : (
                 <>
-                  <span>Verify Email Address</span>
+                  <span>{token ? "Verify Email Address" : "Resend Verification Email"}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
@@ -113,8 +131,8 @@ function VerifyEmailForm() {
           </form>
 
           <div className="pt-4 border-t border-beige/10 text-center text-xs text-beige/60">
-            <Link href="/dashboard" className="text-rosy-brown hover:underline font-mono">
-              Skip for now, go to Dashboard →
+            <Link href="/auth/login" className="text-rosy-brown hover:underline font-mono">
+              Already verified? Sign in →
             </Link>
           </div>
         </div>

@@ -1,91 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findStudentByEmail, findStudentByResetToken, hashPassword } from "@/lib/auth";
-import { randomBytes } from "crypto";
+import { backendRequest, errorResponse, jsonError } from "@/lib/server/backend";
+import { AUTH_PATHS } from "@/lib/server/authContract";
+import {
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+  asString,
+  isEmail,
+  readJsonObject,
+  rejectCrossOrigin,
+} from "@/lib/server/request";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { action, email, token, newPassword, confirmPassword } = body;
+  const blocked = rejectCrossOrigin(req);
+  if (blocked) return blocked;
 
-    // Phase 1: Request Password Reset Link
-    if (action === "request") {
-      if (!email || !email.includes("@")) {
-        return NextResponse.json(
-          { error: "Please enter a valid student email address." },
-          { status: 400 }
-        );
-      }
+  const body = await readJsonObject(req);
+  const action = asString(body?.action);
 
-      const student = findStudentByEmail(email);
-      if (!student) {
-        // Return friendly message even if email not found to prevent user enumeration
-        return NextResponse.json({
-          success: true,
-          message: "If your email is registered with INSPIVIA, a password reset link has been dispatched.",
-        });
-      }
+  // Phase 1: ask the backend to email a reset link.
+  if (action === "request") {
+    const email = asString(body?.email).trim();
+    if (!isEmail(email)) return jsonError(400, "Please enter a valid email address.", "VALIDATION_ERROR");
 
-      // Generate reset token valid for 1 hour
-      const resetToken = randomBytes(20).toString("hex");
-      student.resetPasswordToken = resetToken;
-      student.resetPasswordExpires = Date.now() + 3600000; // 1 hr
+    const result = await backendRequest(AUTH_PATHS.forgotPassword, { method: "POST", body: { email } });
+    if (!result.ok && (result.status >= 500 || result.error?.code === "NOT_IMPLEMENTED")) return errorResponse(result);
 
-      return NextResponse.json({
-        success: true,
-        message: "Password reset instructions generated.",
-        resetToken, // Returned for UI testing / preview flow
-      });
-    }
-
-    // Phase 2: Complete Password Reset with New Password
-    if (action === "reset") {
-      if (!token) {
-        return NextResponse.json(
-          { error: "Reset token is missing or expired. Please request a new link." },
-          { status: 400 }
-        );
-      }
-
-      if (!newPassword || newPassword.length < 6) {
-        return NextResponse.json(
-          { error: "New password must be at least 6 characters long." },
-          { status: 400 }
-        );
-      }
-
-      if (newPassword !== confirmPassword) {
-        return NextResponse.json(
-          { error: "Passwords do not match. Please re-enter identical passwords." },
-          { status: 400 }
-        );
-      }
-
-      const student = findStudentByResetToken(token);
-      if (!student) {
-        return NextResponse.json(
-          { error: "Invalid or expired reset token. Please request a new password reset." },
-          { status: 400 }
-        );
-      }
-
-      // Hash new password securely
-      const { hash, salt } = hashPassword(newPassword);
-      student.passwordHash = hash;
-      student.salt = salt;
-      student.resetPasswordToken = undefined;
-      student.resetPasswordExpires = undefined;
-
-      return NextResponse.json({
-        success: true,
-        message: "Password has been successfully updated. You may now Sign In.",
-      });
-    }
-
-    return NextResponse.json({ error: "Invalid reset action specified." }, { status: 400 });
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "An error occurred while processing password reset." },
-      { status: 500 }
-    );
+    // Identical response whether or not the account exists. The token is only ever emailed.
+    return NextResponse.json({
+      success: true,
+      message: "If your email is registered with INSPIVIA, a password reset link has been sent.",
+    });
   }
+
+  // Phase 2: set a new password using the emailed token.
+  if (action === "reset") {
+    const token = asString(body?.token).trim();
+    const newPassword = asString(body?.newPassword);
+    const confirmPassword = asString(body?.confirmPassword);
+
+    if (!token || token.length > 512) {
+      return jsonError(400, "Reset link is missing or expired. Please request a new one.", "VALIDATION_ERROR");
+    }
+    if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
+      return jsonError(400, `New password must be ${PASSWORD_MIN}–${PASSWORD_MAX} characters long.`, "VALIDATION_ERROR");
+    }
+    if (newPassword !== confirmPassword) {
+      return jsonError(400, "Passwords do not match. Please re-enter identical passwords.", "VALIDATION_ERROR");
+    }
+
+    const result = await backendRequest(AUTH_PATHS.resetPassword, { method: "POST", body: { token, newPassword } });
+    if (!result.ok) {
+      if (result.status === 400 || result.status === 404 || result.status === 410) {
+        return jsonError(400, "Invalid or expired reset link. Please request a new password reset.", "INVALID_TOKEN");
+      }
+      return errorResponse(result);
+    }
+    return NextResponse.json({ success: true, message: "Password updated. You may now sign in." });
+  }
+
+  return jsonError(400, "Invalid reset action.", "VALIDATION_ERROR");
 }

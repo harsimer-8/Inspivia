@@ -4,6 +4,7 @@ import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
+import { apiFetch, errorMessage } from "@/lib/api";
 import { Lock, ArrowRight, CheckCircle2, AlertCircle } from "lucide-react";
 
 function ResetPasswordForm() {
@@ -27,33 +28,23 @@ function ResetPasswordForm() {
       return;
     }
 
-    if (newPassword.length < 6) {
-      setError("Password must be at least 6 characters.");
+    if (newPassword.length < 8) {
+      setError("Password must be at least 8 characters.");
       return;
     }
 
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/reset-password", {
+      await apiFetch("/api/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "reset",
-          token,
-          newPassword,
-          confirmPassword,
-        }),
+        json: { action: "reset", token, newPassword, confirmPassword },
+        redirectOnUnauthorized: false,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to update password.");
-      }
-
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+    } catch (err) {
+      setError(errorMessage(err, "An unexpected error occurred."));
     } finally {
       setLoading(false);
     }
@@ -114,7 +105,7 @@ function ResetPasswordForm() {
               <input
                 type="password"
                 required
-                placeholder="Minimum 6 characters"
+                placeholder="Minimum 8 characters"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-beige placeholder:text-beige/30 text-xs focus:outline-none focus:border-rosy-brown"

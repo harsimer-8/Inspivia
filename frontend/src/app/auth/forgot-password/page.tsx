@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
+import { apiFetch, errorMessage } from "@/lib/api";
 import { Mail, ArrowRight, CheckCircle2, AlertCircle, Sparkles } from "lucide-react";
 
 export default function ForgotPasswordPage() {
@@ -10,7 +11,6 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
   const [error, setError] = useState("");
-  const [generatedToken, setGeneratedToken] = useState("");
 
   const handleRequestReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -19,23 +19,15 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/reset-password", {
+      const data = await apiFetch<{ message?: string }>("/api/auth/reset-password", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "request", email }),
+        json: { action: "request", email: email.trim() },
+        redirectOnUnauthorized: false,
       });
 
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to process password reset request.");
-      }
-
-      setSuccessMessage(data.message || "Password reset instructions dispatched.");
-      if (data.resetToken) {
-        setGeneratedToken(data.resetToken);
-      }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
+      setSuccessMessage(data.message || "Password reset instructions sent.");
+    } catch (err) {
+      setError(errorMessage(err, "An unexpected error occurred."));
     } finally {
       setLoading(false);
     }
@@ -70,20 +62,6 @@ export default function ForgotPasswordPage() {
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                 <span>{successMessage}</span>
               </div>
-              {generatedToken && (
-                <div className="pt-2 border-t border-emerald-500/20">
-                  <span className="text-[10px] font-mono text-beige/70 block mb-1">
-                    Direct Reset Link Preview:
-                  </span>
-                  <Link
-                    href={`/auth/reset-password?token=${generatedToken}`}
-                    className="inline-flex items-center gap-1.5 text-xs text-rosy-brown underline font-mono"
-                  >
-                    <span>Click here to set new password</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </Link>
-                </div>
-              )}
             </div>
           )}
 

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
+import { apiFetch, errorMessage } from "@/lib/api";
 import {
   ArrowRight,
   Lock,
@@ -20,6 +21,7 @@ export default function RegisterPage() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    college: "",
     course: "B.Tech Computer Science",
     year: "1st Year",
     track: "Full-Stack Web & Cloud Architecture",
@@ -47,22 +49,16 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/register", {
+      await apiFetch("/api/auth/register", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
+        json: formData,
+        redirectOnUnauthorized: false,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Registration failed");
-      }
-
-      router.push("/dashboard");
-      router.refresh();
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred during registration.");
+      // Accounts start unverified, so send the student to the verification step rather than the dashboard.
+      router.push(`/auth/verify-email?email=${encodeURIComponent(formData.email.trim())}&sent=1`);
+    } catch (err) {
+      setError(errorMessage(err, "An unexpected error occurred during registration."));
     } finally {
       setLoading(false);
     }
@@ -124,6 +120,25 @@ export default function RegisterPage() {
                   placeholder="ananya@university.edu"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-[#111827] placeholder:text-[#6B7280] text-xs focus:outline-none focus:border-rosy-brown"
+                />
+              </div>
+            </div>
+
+            {/* College */}
+            <div>
+              <label className="text-xs font-mono uppercase text-beige/70 font-semibold block mb-1.5">
+                College / Institution *
+              </label>
+              <div className="relative">
+                <BookOpen className="w-4 h-4 text-beige/40 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  required
+                  maxLength={200}
+                  placeholder="e.g. Your university or college"
+                  value={formData.college}
+                  onChange={(e) => setFormData({ ...formData, college: e.target.value })}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-[#111827] placeholder:text-[#6B7280] text-xs focus:outline-none focus:border-rosy-brown"
                 />
               </div>
@@ -201,7 +216,7 @@ export default function RegisterPage() {
                 <input
                   type="password"
                   required
-                  placeholder="Minimum 6 characters"
+                  placeholder="Minimum 8 characters"
                   value={formData.password}
                   onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-forest-green/80 border border-beige/15 text-[#111827] placeholder:text-[#6B7280] text-xs focus:outline-none focus:border-rosy-brown"

@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
-import { ArrowRight, Lock, Mail, AlertCircle, ShieldCheck, Sparkles, HelpCircle } from "lucide-react";
+import { apiFetch, errorMessage, safeNextPath } from "@/lib/api";
+import { ArrowRight, Lock, Mail, AlertCircle, ShieldCheck, HelpCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,37 +14,32 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("expired") === "1") {
+      setError("Your session has expired. Please sign in again.");
+    }
+  }, []);
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      await apiFetch("/api/auth/login", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        json: { email: email.trim(), password },
+        redirectOnUnauthorized: false,
       });
 
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || "Login failed");
-      }
-
-      router.push("/dashboard");
+      const next = safeNextPath(new URLSearchParams(window.location.search).get("next"));
+      router.push(next);
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred during login.");
+    } catch (err) {
+      setError(errorMessage(err, "An unexpected error occurred during login."));
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemoAccount = () => {
-    setEmail("student@inspivia.org");
-    setPassword("inspivia2026");
-    setError("");
   };
 
   return (
@@ -128,18 +124,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Pre-Fill Helper */}
-          <div className="mt-6 pt-6 border-t border-beige/10">
-            <button
-              type="button"
-              onClick={fillDemoAccount}
-              className="w-full py-2.5 rounded-xl bg-forest-green/60 border border-beige/20 text-xs text-beige/90 hover:text-rosy-brown hover:border-rosy-brown font-mono flex items-center justify-center gap-2 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-rosy-brown" />
-              <span>Use Seeded Student Account (Ananya Sharma)</span>
-            </button>
-          </div>
 
           <div className="mt-6 text-center text-xs text-beige/70">
             <span>New engineering scholar? </span>

@@ -4,7 +4,7 @@ The backend runtime is implemented in Python with FastAPI. PostgreSQL migrations
 
 ## Frontend
 
-The Next.js frontend is in `frontend/`. From that directory, install its dependencies with `npm install` and start the development server with `npm run dev`.
+The Next.js frontend is in `frontend/`. From that directory, install its dependencies with `npm install` and start the development server with `npm run dev`. Copy `frontend/.env.example` to `frontend/.env.local` and set `BACKEND_API_URL`. See `docs/05-frontend-integration.md` for the integration contract and deployment steps.
 
 ## AI shared-secret setup
 

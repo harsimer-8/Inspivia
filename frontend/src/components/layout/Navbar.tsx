@@ -5,6 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import InspiviaLogo from "@/components/ui/InspiviaLogo";
 import { Menu, X, ArrowRight, UserCheck, LayoutDashboard } from "lucide-react";
+import { fetchCurrentUser } from "@/lib/api";
+import type { SessionUser } from "@/lib/types";
 
 export const NAV_LINKS = [
   { href: "/", label: "Home" },
@@ -20,7 +22,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [studentUser, setStudentUser] = useState<any>(null);
+  const [studentUser, setStudentUser] = useState<SessionUser | null>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -29,15 +31,8 @@ export default function Navbar() {
 
     window.addEventListener("scroll", handleScroll);
 
-    // Check if user is logged in
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.authenticated) {
-          setStudentUser(data.user);
-        }
-      })
-      .catch(() => {});
+    // Check if user is logged in (never redirects on the public site)
+    fetchCurrentUser().then(setStudentUser);
 
     return () => window.removeEventListener("scroll", handleScroll);
   }, [pathname]);

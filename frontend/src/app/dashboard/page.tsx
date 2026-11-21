@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
-import { DEMO_STUDENT } from "@/lib/auth";
+import { firstName, useSessionUser } from "@/lib/session-context";
 import { WORK_PROJECTS } from "@/data/workData";
 import {
   Sparkles,
@@ -24,7 +24,9 @@ import {
 } from "lucide-react";
 
 export default function DashboardOverviewPage() {
-  const [user, setUser] = useState<any>(DEMO_STUDENT);
+  const user = useSessionUser();
+  const track = user.enrolledTrack || "Not selected yet";
+  const year = user.year || "your program";
   const [notifications, setNotifications] = useState([
     {
       id: "notif-1",
@@ -49,16 +51,6 @@ export default function DashboardOverviewPage() {
     },
   ]);
 
-  useEffect(() => {
-    fetch("/api/auth/me")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data && data.authenticated && data.user) {
-          setUser(data.user);
-        }
-      })
-      .catch(() => {});
-  }, []);
 
   const recommendedProjects = WORK_PROJECTS.slice(0, 2);
 
@@ -75,12 +67,12 @@ export default function DashboardOverviewPage() {
           </div>
 
           <h1 className="text-3xl md:text-5xl font-serif font-bold text-beige">
-            Welcome, <span className="text-rosy-brown">{user.name.split(" ")[0]}</span>!
+            Welcome, <span className="text-rosy-brown">{firstName(user)}</span>!
           </h1>
 
           <p className="text-xs md:text-sm text-beige/80 max-w-xl font-sans">
-            Selected Domain: <strong className="text-beige font-semibold">{user.enrolledTrack}</strong>.
-            Enrolled in {user.course} ({user.year}).
+            Selected Domain: <strong className="text-beige font-semibold">{track}</strong>.
+            {user.course ? `Enrolled in ${user.course}${user.year ? ` (${user.year})` : ""}.` : "Welcome to your INSPIVIA student dashboard."}
           </p>
         </div>
 
@@ -111,7 +103,7 @@ export default function DashboardOverviewPage() {
             Learning Progress
           </span>
           <div className="text-3xl font-serif font-black text-rosy-brown">
-            {user.completedMilestones?.length ? `${user.completedMilestones.length * 25}%` : "33%"}
+            33%
           </div>
           <div className="w-full h-1.5 rounded-full bg-black/30 overflow-hidden">
             <div className="h-full bg-rosy-brown w-1/3 rounded-full" />
@@ -181,7 +173,7 @@ export default function DashboardOverviewPage() {
                     AI Architectural Assistant
                   </h3>
                   <p className="text-xs text-moss-green font-mono">
-                    Online 24/7 // Context: {user.enrolledTrack.split("&")[0]}
+                    Online 24/7 // Context: {track.split("&")[0]}
                   </p>
                 </div>
               </div>
@@ -197,7 +189,7 @@ export default function DashboardOverviewPage() {
 
             <div className="p-5 rounded-2xl bg-forest-green/80 border border-beige/10 text-xs text-beige/85 space-y-3 font-sans">
               <p className="leading-relaxed">
-                "Hello <strong className="text-beige">{user.name.split(" ")[0]}</strong>. For your upcoming Milestone 3 checkpoint, I've prepared a recommended telemetry schema and FreeRTOS task partition. Would you like to review it before your meeting with Lead Mentor Wallabhi Saxena?"
+                "Hello <strong className="text-beige">{firstName(user)}</strong>. For your upcoming Milestone 3 checkpoint, I've prepared a recommended telemetry schema and FreeRTOS task partition. Would you like to review it before your meeting with Lead Mentor Wallabhi Saxena?"
               </p>
 
               <div className="flex flex-wrap gap-2 pt-2">
@@ -239,7 +231,7 @@ export default function DashboardOverviewPage() {
                   Curated Matchmaker
                 </span>
                 <h3 className="text-xl font-serif font-bold text-beige">
-                  Recommended Projects for {user.year}
+                  Recommended Projects for {year}
                 </h3>
               </div>
               <Link

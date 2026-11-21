@@ -1,92 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { registerStudent, AUTH_COOKIE_NAME, findStudentByEmail } from "@/lib/auth";
+import { backendRequest, errorResponse, jsonError } from "@/lib/server/backend";
+import { AUTH_PATHS, toRegistrationBody } from "@/lib/server/authContract";
+import {
+  PASSWORD_MAX,
+  PASSWORD_MIN,
+  asString,
+  isEmail,
+  readJsonObject,
+  rejectCrossOrigin,
+} from "@/lib/server/request";
+
+export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { name, email, password, confirmPassword, course, year, track, terms } = body;
+  const blocked = rejectCrossOrigin(req);
+  if (blocked) return blocked;
 
-    // Strict Validations
-    if (!name || name.trim().length < 2) {
-      return NextResponse.json(
-        { error: "Please enter your full legal name (minimum 2 characters)." },
-        { status: 400 }
-      );
-    }
+  const body = await readJsonObject(req);
+  const name = asString(body?.name).trim();
+  const email = asString(body?.email).trim();
+  const password = asString(body?.password);
+  const confirmPassword = asString(body?.confirmPassword);
+  const college = asString(body?.college).trim();
+  const course = asString(body?.course).trim();
+  const year = asString(body?.year).trim();
 
-    if (!email || !email.includes("@") || !email.includes(".")) {
-      return NextResponse.json(
-        { error: "Please provide a valid student or institutional email address." },
-        { status: 400 }
-      );
-    }
-
-    if (!password || password.length < 6) {
-      return NextResponse.json(
-        { error: "Password must be at least 6 characters long." },
-        { status: 400 }
-      );
-    }
-
-    if (password !== confirmPassword) {
-      return NextResponse.json(
-        { error: "Passwords do not match. Please re-enter your password." },
-        { status: 400 }
-      );
-    }
-
-    if (!terms) {
-      return NextResponse.json(
-        { error: "You must accept the Inspivia Student Mentorship Terms & Honor Code." },
-        { status: 400 }
-      );
-    }
-
-    if (findStudentByEmail(email)) {
-      return NextResponse.json(
-        { error: "An account with this email already exists. Please Sign In instead." },
-        { status: 409 }
-      );
-    }
-
-    // Register with securely hashed password
-    const student = registerStudent({
-      name,
-      email,
-      password,
-      course: course || "B.Tech Computer Science",
-      year: year || "1st Year",
-      track: track || "Full-Stack Web & Cloud Architecture",
-    });
-
-    const response = NextResponse.json({
-      success: true,
-      message: "Registration completed successfully. Welcome to INSPIVIA!",
-      user: {
-        id: student.id,
-        name: student.name,
-        email: student.email,
-        course: student.course,
-        year: student.year,
-        enrolledTrack: student.enrolledTrack,
-        avatarInitials: student.avatarInitials,
-      },
-    });
-
-    // Set secure HTTP-only session cookie
-    response.cookies.set(AUTH_COOKIE_NAME, student.email, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
-      path: "/",
-    });
-
-    return response;
-  } catch (err: any) {
-    return NextResponse.json(
-      { error: err.message || "An unexpected error occurred during student registration." },
-      { status: 500 }
-    );
+  if (name.length < 2 || name.length > 120) {
+    return jsonError(400, "Please enter your full name (2–120 characters).", "VALIDATION_ERROR", { name: "Invalid name" });
   }
+  if (!isEmail(email)) {
+    return jsonError(400, "Please provide a valid email address.", "VALIDATION_ERROR", { email: "Invalid email" });
+  }
+  if (college.length < 2 || college.length > 200) {
+    return jsonError(400, "Please enter your college or institution.", "VALIDATION_ERROR", { college: "Required" });
+  }
+  if (password.length < PASSWORD_MIN || password.length > PASSWORD_MAX) {
+    return jsonError(400, `Password must be ${PASSWORD_MIN}–${PASSWORD_MAX} characters long.`, "VALIDATION_ERROR", {
+      password: "Invalid length",
+    });
+  }
+  if (password !== confirmPassword) {
+    return jsonError(400, "Passwords do not match. Please re-enter your password.", "VALIDATION_ERROR");
+  }
+  if (body?.terms !== true) {
+    return jsonError(400, "You must accept the Inspivia Student Mentorship Terms & Honor Code.", "VALIDATION_ERROR");
+  }
+
+  const result = await backendRequest(AUTH_PATHS.registerStudent, {
+    method: "POST",
+    body: toRegistrationBody({ name, email, password, college, course, year }),
+  });
+  if (!result.ok) return errorResponse(result);
+
+  // The backend plan creates accounts as PENDING_VERIFICATION, so registration does NOT sign the user in.
+  return NextResponse.json({
+    success: true,
+    message: "Account created. Check your inbox for a verification link to activate it.",
+    email,
+  });
 }
