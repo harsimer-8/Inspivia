@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
+from app.auth import AuthService, router as auth_router
 from app.ai_client import AiGatewayError, AiServiceClient
 from app.ai_contract import (
     ChatInput,
@@ -26,6 +27,7 @@ from app.ai_service import AiApplicationService
 from app.ai_store import SqlAiConversationStore, SqlStudentContextProvider
 from app.config import Settings
 from app.db import build_engine, reflect_schema, run_migrations, session_factory
+from app.email_service import EmailService
 from app.repositories import RepositoryRegistry
 from app.security import UserPrincipal, authenticate_header, bearer_principal, require_role
 
@@ -86,6 +88,7 @@ def create_app(
             app.state.engine = engine
             app.state.session_factory = session_factory(engine)
             app.state.repositories = RepositoryRegistry(engine, metadata)
+            app.state.auth_service = AuthService(engine, metadata, configuration, EmailService(configuration))
             http_client = httpx.AsyncClient(
                 base_url=configuration.ai_service_base_url.rstrip("/"),
                 headers={
@@ -112,6 +115,7 @@ def create_app(
 
     app = FastAPI(title="INSPIVIA Backend", version="0.1.0", lifespan=lifespan)
     app.state.settings = configuration
+    app.include_router(auth_router)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=list(configuration.cors_allowed_origins),

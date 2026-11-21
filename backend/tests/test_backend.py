@@ -325,4 +325,4 @@ def test_email_helper_formats_verification_message_and_swallows_smtp_errors(monk
     service = EmailService(valid_settings(frontend_base_url="https://frontend.test"))
     service.send_verification_email("student@example.test", "abc123")
     assert sent["message"]["Subject"] == "Verify your Inspivia account"
-    assert "https://frontend.test/verify-email?token=abc123" in sent["message"].get_content()
+    assert "https://frontend.test/auth/verify-email?token=abc123" in sent["message"].get_content()
