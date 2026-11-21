@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import smtplib
+import ssl
 from email.message import EmailMessage
 
 from app.config import Settings
@@ -9,8 +10,12 @@ from app.config import Settings
 logger = logging.getLogger(__name__)
 
 
+class EmailDeliveryError(RuntimeError):
+    """SMTP could not accept an outbound transactional message."""
+
+
 class EmailService:
-    """Best-effort SMTP helper; message delivery failures do not block callers."""
+    """SMTP helper for verification, password reset, and notification messages."""
 
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -44,8 +49,15 @@ class EmailService:
             with smtplib.SMTP(
                 self.settings.mail_host, self.settings.mail_port, timeout=10
             ) as smtp:
+                if self.settings.mail_use_tls:
+                    smtp.starttls(context=ssl.create_default_context())
+                elif self.settings.mail_username:
+                    raise EmailDeliveryError("TLS is required when SMTP authentication is configured")
                 if self.settings.mail_username:
                     smtp.login(self.settings.mail_username, self.settings.mail_password)
                 smtp.send_message(message)
-        except Exception as error:
-            logger.warning("Email delivery failed (%s); continuing without blocking", type(error).__name__)
+        except EmailDeliveryError:
+            raise
+        except (OSError, smtplib.SMTPException) as error:
+            logger.error("SMTP delivery failed (%s)", type(error).__name__)
+            raise EmailDeliveryError("SMTP delivery failed") from error

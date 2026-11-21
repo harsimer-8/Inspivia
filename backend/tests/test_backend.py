@@ -304,7 +304,9 @@ def test_rate_limiter_rejects_excess_and_refills():
     assert not limiter.try_consume("user", 1, 60)
 
 
-def test_email_helper_formats_verification_message_and_swallows_smtp_errors(monkeypatch):
+def test_email_helper_formats_verification_message_and_surfaces_smtp_errors(monkeypatch):
+    from app.email_service import EmailDeliveryError
+
     sent = {}
 
     class FakeSmtp:
@@ -317,12 +319,73 @@ def test_email_helper_formats_verification_message_and_swallows_smtp_errors(monk
         def __exit__(self, *args):
             return False
 
+        def starttls(self, **kwargs):
+            raise AssertionError("MailHog without authentication must not use STARTTLS")
+
         def send_message(self, message):
             sent["message"] = message
             raise OSError("mail server detail")
 
     monkeypatch.setattr("app.email_service.smtplib.SMTP", FakeSmtp)
     service = EmailService(valid_settings(frontend_base_url="https://frontend.test"))
-    service.send_verification_email("student@example.test", "abc123")
+    with pytest.raises(EmailDeliveryError, match="SMTP delivery failed"):
+        service.send_verification_email("student@example.test", "abc123")
     assert sent["message"]["Subject"] == "Verify your Inspivia account"
     assert "https://frontend.test/auth/verify-email?token=abc123" in sent["message"].get_content()
+
+
+def test_email_helper_uses_starttls_before_smtp_authentication(monkeypatch):
+    from app.email_service import EmailDeliveryError
+
+    calls = []
+
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs):
+            calls.append(("connect", args))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self, **kwargs):
+            calls.append(("starttls", kwargs))
+
+        def login(self, username, password):
+            calls.append(("login", username, password))
+
+        def send_message(self, message):
+            calls.append(("send", message["To"]))
+
+    monkeypatch.setattr("app.email_service.smtplib.SMTP", FakeSmtp)
+    service = EmailService(
+        valid_settings(
+            mail_host="smtp-relay.brevo.com",
+            mail_port=587,
+            mail_use_tls=True,
+            mail_username="brevo-login",
+            mail_password="smtp-key",
+        )
+    )
+    service.send_verification_email("student@example.test", "abc123")
+    assert [call[0] for call in calls] == ["connect", "starttls", "login", "send"]
+
+
+def test_authenticated_smtp_refuses_plaintext(monkeypatch):
+    from app.email_service import EmailDeliveryError
+
+    class FakeSmtp:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr("app.email_service.smtplib.SMTP", FakeSmtp)
+    service = EmailService(valid_settings(mail_username="brevo-login", mail_password="smtp-key"))
+    with pytest.raises(EmailDeliveryError, match="TLS is required"):
+        service.send_verification_email("student@example.test", "abc123")

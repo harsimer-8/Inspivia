@@ -14,7 +14,7 @@ Flyway SQL scripts from `src/main/resources/db/migration` and records them in
 `X-Service-Key`. The JWT and AI timeout/history settings retain their existing
 `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `AI_CONNECT_TIMEOUT`, `AI_READ_TIMEOUT`, and
 `AI_MAX_HISTORY_MESSAGES` environment variable names. Optional SMTP delivery uses
-`MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, and
+`MAIL_HOST`, `MAIL_PORT`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, and
 `FRONTEND_BASE_URL`.
 
 ## Authentication
@@ -37,15 +37,28 @@ Set `FRONTEND_BASE_URL` to the deployed frontend origin. Verification and reset 
 such as “Applied AI” are not currently mapped to database domains; send a domain slug via
 `selectedDomain` once the frontend has an agreed mapping.
 
-Implemented HTTP behavior is limited to the four existing AI routes and the existing
-actuator health/info routes. The chat/context and conversation-store adapters read and
-write the migration-backed student, taxonomy, project-enrollment, `ai_conversations`,
-and `ai_messages` tables. Core tables are reflected from the migrated PostgreSQL
-schema and exposed to internal code through allow-listed, parameterized CRUD
-repositories. JWT signing/verification, role checks, CORS, and the in-memory rate
-limiter are represented in Python.
+### Brevo SMTP
 
-No auth, mentorship, catalogue, or other planned business routes are implemented;
-their database entities/repositories were scaffolding, not working HTTP functionality,
-so those routes are intentionally not fabricated. Existing migrations remain at their
-original path and are not rewritten.
+For Brevo transactional SMTP, set these backend environment variables (locally in an ignored
+`.env`, or in the deployment's secret/environment settings):
+
+```env
+MAIL_HOST=smtp-relay.brevo.com
+MAIL_PORT=587
+MAIL_USE_TLS=true
+MAIL_USERNAME=<Brevo SMTP login>
+MAIL_PASSWORD=<Brevo SMTP key, not the API key>
+MAIL_FROM=<sender address verified in Brevo>
+```
+
+In Brevo, verify the sender address (preferably authenticate the sending domain with its
+provided DNS records) and ensure the transactional email feature/account is enabled. Keep
+credentials out of Git and chat. The backend now requires STARTTLS for authenticated SMTP and
+returns `503 EMAIL_DELIVERY_FAILED` if the provider refuses a message. The automated test suite
+mocks SMTP; a real send must be verified with credentials and a verified sender in the provider
+account.
+
+Implemented HTTP behavior includes student authentication and profile routes, the four
+AI routes, and actuator health/info. Other planned mentorship, catalogue, and business
+routes remain unimplemented; their database entities/repositories were scaffolding, so
+those routes are intentionally not fabricated. Existing migrations remain unchanged.

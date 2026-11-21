@@ -39,6 +39,7 @@ class Settings:
     ai_max_history_messages: int = 10
     mail_host: str = "localhost"
     mail_port: int = 1025
+    mail_use_tls: bool = False
     mail_username: str = ""
     mail_password: str = ""
     mail_from: str = "no-reply@inspivia.local"
@@ -66,6 +67,7 @@ class Settings:
             ai_max_history_messages=int(os.getenv("AI_MAX_HISTORY_MESSAGES", "10")),
             mail_host=os.getenv("MAIL_HOST", "localhost"),
             mail_port=int(os.getenv("MAIL_PORT", "1025")),
+            mail_use_tls=os.getenv("MAIL_USE_TLS", "false").strip().lower() in {"true", "1", "yes"},
             mail_username=os.getenv("MAIL_USERNAME", ""),
             mail_password=os.getenv("MAIL_PASSWORD", ""),
             mail_from=os.getenv("MAIL_FROM", "no-reply@inspivia.local"),
