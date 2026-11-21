@@ -1,6 +1,6 @@
 # 05 — Frontend ↔ Backend integration
 
-Status: frontend integration is implemented; **the backend auth endpoints it needs do not exist yet.**
+Status: frontend integration is implemented against the backend auth + student-profile API (backend commit `eb4b0f7`).
 
 ## Request flow
 
@@ -21,33 +21,29 @@ Browser ──(same-origin /api/*, HttpOnly cookies)──▶ Next.js route hand
 |---|---|---|
 | `POST /api/ai-companion` | `POST /api/v1/ai/chat` | body `{message (≤4000), conversationId?}` → `{conversationId, reply, suggestedFollowUps, disclaimer}`; STUDENT role only |
 
-## Backend endpoints REQUIRED but MISSING (contract assumed by the frontend)
+## Backend contract used (confirmed against `backend/app/auth.py`, commit eb4b0f7)
 
-All field names are **assumptions** (camelCase, matching the AI API). They live in
-`frontend/src/lib/server/authContract.ts`; change that one file if the backend differs.
+All of it is confined to `frontend/src/lib/server/authContract.ts`.
 
-| Endpoint | Assumed request | Assumed response |
+| Frontend route | Backend call | Notes |
 |---|---|---|
-| `POST /api/v1/auth/register/student` | `{fullName, email, password, college, degree, currentYear (1-8)}` | 2xx; account created as `PENDING_VERIFICATION`; 409 if email exists |
-| `POST /api/v1/auth/login` | `{email, password}` | `{accessToken, refreshToken}`; 401/403 for bad credentials or unverified |
-| `POST /api/v1/auth/refresh` | `{refreshToken}` | `{accessToken, refreshToken}` (rotated; reuse revokes the family) |
-| `POST /api/v1/auth/logout` | `{refreshToken}` + Bearer | 2xx |
-| `GET /api/v1/auth/me` | Bearer | `{id, email, fullName, role}` |
-| `POST /api/v1/auth/verify-email` | `{token}` | 2xx; 400/404/410 invalid or expired |
-| `POST /api/v1/auth/resend-verification` | `{email}` | 2xx regardless of account existence |
-| `POST /api/v1/auth/forgot-password` | `{email}` | 2xx regardless of account existence |
-| `POST /api/v1/auth/reset-password` | `{token, newPassword}` | 2xx; 400/404/410 invalid or expired |
-| `GET/PUT /api/v1/students/me` | Bearer | profile (degree, year, domain) — needed to show course/year/track on the dashboard |
+| `POST /api/auth/register` | `POST /auth/register/student` `{fullName,email,password,college,degree,currentYear}` | 201; account is `PENDING_VERIFICATION`, so the user is NOT signed in; 409 `EMAIL_ALREADY_EXISTS` |
+| `POST /api/auth/login` | `POST /auth/login` `{email,password}` → `{accessToken,refreshToken}` | 401 `INVALID_CREDENTIALS`, 403 `EMAIL_NOT_VERIFIED`; tokens go into HttpOnly cookies, never to the browser |
+| (internal, on 401/expiry) | `POST /auth/refresh` `{refreshToken}` | rotated; reuse revokes the family |
+| `POST /api/auth/logout` | `POST /auth/logout` `{refreshToken}` | 204; cookies cleared even if the backend is unreachable |
+| `GET /api/auth/me` | `GET /auth/me` + `GET /students/me` | merged into `{id,email,name,role,course,year,enrolledTrack}` |
+| `POST /api/auth/verify-email` | `POST /auth/verify-email` `{token}` / `POST /auth/resend-verification` `{email}` | token 20-256 chars |
+| `POST /api/auth/reset-password` | `POST /auth/forgot-password` `{email}` / `POST /auth/reset-password` `{token,newPassword}` | generic response whether or not the account exists |
+| `POST /api/ai-companion` | `POST /ai/chat` `{message (<=4000), conversationId?}` | STUDENT role only |
 
-**Deviation from docs/02-architecture.md:** that doc keeps the refresh token in a backend-set cookie and the access token in
-browser memory. Because the Next.js server (not the browser) calls the backend, the frontend instead needs both tokens in the
-JSON body and stores them in its own HttpOnly cookies. This also keeps JWTs out of client JavaScript.
+Backend errors (`{detail:{code,message}}`, validation problem JSON, plain `{detail}`) are normalised to `{error, code, fieldErrors?}`.
 
-**Open product decisions**
-- `college` is NOT NULL in `student_profiles` but was not collected before; a required field was added to the register form.
-- The frontend "track" values (Full-Stack, Applied AI, IoT, VLSI) do not map to the `domains` seed (web-development, ai-ml, …).
-  The track is currently **not sent** to the backend.
-- Password policy is 8–128 characters on the frontend; the backend should enforce its own.
+**Open items**
+- *Track mapping:* the register form's track dropdown is kept but **not sent**. Send `selectedDomain` (a slug such as `web-development`)
+  only once the frontend labels are mapped to domain slugs. Until then the dashboard shows "Not selected yet".
+- *Profile editing:* `PUT /students/me` is not wired up; the profile page's bio/links are local-only. Note that PUT without
+  `selectedDomain` sets the stored domain to null, so the frontend must always send the current domain when it starts using PUT.
+- The dashboard shows the domain slug as a label (`ai-ml` → "AI ML") because the API returns only the slug.
 
 ## Environment variables (Vercel, all server-only)
 
@@ -71,12 +67,14 @@ Do **not** set `GEMINI_API_KEY` or `AI_SERVICE_API_KEY` on Vercel. In production
 ## Test status
 
 - `tsc`, `next lint`, `next build`: pass (build verified with Google Fonts mocked; the sandbox had no access to Google Fonts).
-- 29-check end-to-end test against the real backend app factory, JWT middleware and `/ai/chat` route (AI service stubbed, auth routes
-  stubbed to the assumed contract) passes. **Not tested:** the real auth endpoints, Neon, Quaithe, Gemini, Vercel.
+- 41-check end-to-end test, frontend (`next start`) against the REAL backend app, JWT middleware, `AuthService` and `/auth/*` + `/students/me` routes
+  (in-memory SQLite, as in `backend/tests/test_auth.py`; AI service and SMTP stubbed). Covers register, duplicate, unverified login, verify/resend,
+  login, cookie flags, profile merge, AI chat, refresh rotation, replay detection, password reset, logout.
+- **Not tested:** PostgreSQL/Neon (SQLite ignores `FOR UPDATE`, so refresh concurrency is untested), real SMTP, Quaithe, Gemini, Vercel, a browser.
 
 ## Remaining blockers
 
-- Backend auth + `students/me` endpoints (above).
-- Dashboard overview, roadmap, projects, mentors and sessions pages still show static demo content; profile edits are not persisted.
+- Agree the track → domain-slug mapping.
+- Dashboard overview, roadmap, projects, mentors and sessions pages still show static demo content (no backend routes for them); profile edits are not persisted.
 - The AI track selector is cosmetic: the chat contract has no track field (context is built server-side).
-- In-process refresh de-duplication is per serverless instance; refresh-token reuse detection can still trip on simultaneous multi-tab refreshes.
+- Refresh de-duplication is per serverless instance; simultaneous multi-tab refreshes across instances can still trip reuse detection and sign the user out.

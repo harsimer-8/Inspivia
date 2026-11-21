@@ -29,12 +29,12 @@ export async function POST(req: NextRequest) {
   }
 
   const token = asString(body?.token).trim();
-  if (!token || token.length > 512) {
+  if (token.length < 20 || token.length > 256) {
     return jsonError(400, "This verification link is missing or invalid. Request a new one below.", "VALIDATION_ERROR");
   }
   const result = await backendRequest(AUTH_PATHS.verifyEmail, { method: "POST", body: { token } });
   if (!result.ok) {
-    if (result.status === 400 || result.status === 404 || result.status === 410) {
+    if (result.status === 400 || result.status === 404 || result.status === 410 || result.status === 422) {
       return jsonError(400, "This verification link is invalid or has expired. Request a new one below.", "INVALID_TOKEN");
     }
     return errorResponse(result);

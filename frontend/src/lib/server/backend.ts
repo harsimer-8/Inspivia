@@ -82,9 +82,10 @@ function fail(status: number, code: string, error: string): BackendResult<never>
 }
 
 /**
- * Backend errors arrive in two shapes (backend/app/main.py):
- *   - problem JSON: { code, title, detail, errors: [{ field, message }] }  (validation / internal)
- *   - FastAPI/AI:   { detail: "message" }
+ * Backend errors arrive in three shapes (backend/app/main.py, backend/app/auth.py):
+ *   - validation problem JSON:  { code, detail: "Validation failed", errors: [{ field, message }] }  (HTTP 400)
+ *   - structured domain error:  { detail: { code, message } }                                      (auth/profile)
+ *   - plain FastAPI/AI error:   { detail: "message" }
  */
 function normaliseError(status: number, data: unknown): ApiErrorBody {
   const body = (data ?? {}) as {
@@ -92,7 +93,12 @@ function normaliseError(status: number, data: unknown): ApiErrorBody {
     detail?: unknown;
     errors?: Array<{ field?: string; message?: string }>;
   };
-  const detail = typeof body.detail === "string" ? body.detail : undefined;
+  const structured =
+    body.detail && typeof body.detail === "object" && !Array.isArray(body.detail)
+      ? (body.detail as { code?: string; message?: string })
+      : undefined;
+  const detail = typeof body.detail === "string" ? body.detail : structured?.message;
+  const code = structured?.code ?? body.code;
 
   if (Array.isArray(body.errors) && body.errors.length > 0) {
     const fieldErrors: Record<string, string> = {};
@@ -101,7 +107,7 @@ function normaliseError(status: number, data: unknown): ApiErrorBody {
     }
     return {
       error: "Please check the highlighted details and try again.",
-      code: body.code ?? "VALIDATION_ERROR",
+      code: code ?? "VALIDATION_ERROR",
       fieldErrors,
     };
   }
@@ -109,23 +115,28 @@ function normaliseError(status: number, data: unknown): ApiErrorBody {
   switch (status) {
     case 400:
     case 422:
-      return { error: detail ?? "The request was not valid.", code: body.code ?? "BAD_REQUEST" };
+      return { error: detail ?? "The request was not valid.", code: code ?? "BAD_REQUEST" };
     case 401:
-      return { error: detail ?? "Your session has expired. Please sign in again.", code: "UNAUTHENTICATED" };
+      return { error: detail ?? "Your session has expired. Please sign in again.", code: code ?? "UNAUTHENTICATED" };
     case 403:
-      return { error: "You don't have permission to do that.", code: "FORBIDDEN" };
+      return structured?.message
+        ? { error: structured.message, code }
+        : { error: "You don't have permission to do that.", code: "FORBIDDEN" };
     case 404:
     case 405:
-      // For auth/profile routes this means the backend has not shipped the endpoint yet.
-      return { error: "This feature isn't available yet.", code: "NOT_IMPLEMENTED" };
+      // A structured 404 is a real domain answer (e.g. STUDENT_PROFILE_NOT_FOUND). A bare FastAPI
+      // "Not Found" means the route itself does not exist on this backend deployment.
+      return structured?.code
+        ? { error: detail ?? "Not found.", code }
+        : { error: "This feature isn't available yet.", code: "NOT_IMPLEMENTED" };
     case 409:
-      return { error: detail ?? "That conflicts with an existing record.", code: "CONFLICT" };
+      return { error: detail ?? "That conflicts with an existing record.", code: code ?? "CONFLICT" };
     case 429:
       return { error: "Too many requests. Please wait a moment and try again.", code: "RATE_LIMITED" };
     default:
       return status >= 500
-        ? { error: "The service is temporarily unavailable. Please try again later.", code: "UPSTREAM_ERROR" }
-        : { error: detail ?? "Something went wrong.", code: "ERROR" };
+        ? { error: "The service is temporarily unavailable. Please try again later.", code: code ?? "UPSTREAM_ERROR" }
+        : { error: detail ?? "Something went wrong.", code: code ?? "ERROR" };
   }
 }
 

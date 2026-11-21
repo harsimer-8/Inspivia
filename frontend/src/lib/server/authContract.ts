@@ -4,18 +4,9 @@ import { initialsFor } from "@/lib/types";
 import type { TokenPair } from "./session";
 
 /**
- * ---------------------------------------------------------------------------------------------
- *  AUTH CONTRACT  -  *** NOT YET IMPLEMENTED BY THE BACKEND ***
- * ---------------------------------------------------------------------------------------------
- * backend/app/main.py currently serves only /api/v1/ai/* and /actuator/*. The /api/v1/auth/*
- * paths below are whitelisted by its JWT middleware but have no handlers, and docs/*.md list
- * them as planned without request/response schemas.
- *
- * Everything the frontend assumes about those endpoints is confined to THIS FILE so that, once
- * the backend ships them, any mismatch is fixed here and nowhere else. The assumed contract is
- * written out in docs/05-frontend-integration.md, which the backend owner should confirm or
- * change. Field names follow the camelCase convention of the existing frontend-facing AI API.
- * ---------------------------------------------------------------------------------------------
+ * Auth contract as implemented by backend/app/auth.py (commit eb4b0f7). Every backend path and
+ * field name the frontend relies on for authentication is confined to this file, so a backend
+ * change is a one-file fix here. See docs/05-frontend-integration.md.
  */
 
 export const AUTH_PATHS = {
@@ -24,13 +15,14 @@ export const AUTH_PATHS = {
   refresh: "/auth/refresh",
   logout: "/auth/logout",
   me: "/auth/me",
+  studentProfile: "/students/me",
   verifyEmail: "/auth/verify-email",
   resendVerification: "/auth/resend-verification",
   forgotPassword: "/auth/forgot-password",
   resetPassword: "/auth/reset-password",
 } as const;
 
-/** ASSUMED: login and refresh respond with these fields in the JSON body. */
+/** POST /auth/login and /auth/refresh respond with these fields in the JSON body. */
 interface TokenResponse {
   accessToken?: string;
   refreshToken?: string;
@@ -45,7 +37,7 @@ export function extractTokens(data: unknown): TokenPair | null {
   };
 }
 
-/** ASSUMED: GET /auth/me returns { id, email, fullName, role }. */
+/** GET /auth/me -> { id, email, fullName, role } */
 interface MeResponse {
   id?: string;
   email?: string;
@@ -53,12 +45,46 @@ interface MeResponse {
   role?: string;
 }
 
-export function toSessionUser(data: unknown): SessionUser | null {
+/** GET /students/me -> { college, degree, currentYear, selectedDomain (a domain slug or null) } */
+export interface StudentProfileResponse {
+  college?: string;
+  degree?: string;
+  currentYear?: number;
+  selectedDomain?: string | null;
+}
+
+export function toSessionUser(data: unknown, profile?: StudentProfileResponse | null): SessionUser | null {
   const me = (data ?? {}) as MeResponse;
   if (!me.id || !me.email) return null;
   const name = me.fullName?.trim() || me.email.split("@")[0];
   const role: UserRole = me.role === "MENTOR" || me.role === "ADMIN" ? me.role : "STUDENT";
-  return { id: me.id, email: me.email, name, role, avatarInitials: initialsFor(name) };
+  return {
+    id: me.id,
+    email: me.email,
+    name,
+    role,
+    avatarInitials: initialsFor(name),
+    course: profile?.degree || undefined,
+    year: profile?.currentYear ? yearLabel(profile.currentYear) : undefined,
+    enrolledTrack: profile?.selectedDomain ? domainLabel(profile.selectedDomain) : undefined,
+  };
+}
+
+/** 1 -> "1st Year", 2 -> "2nd Year", 4 -> "4th Year" (matches the register form's labels). */
+export function yearLabel(year: number): string {
+  const suffix = year === 1 ? "st" : year === 2 ? "nd" : year === 3 ? "rd" : "th";
+  return `${year}${suffix} Year`;
+}
+
+const ACRONYMS = new Set(["ai", "ml", "iot", "vlsi", "ui", "ux"]);
+
+/** The API only returns a domain slug ("ai-ml"); turn it into a display label ("AI ML"). */
+export function domainLabel(slug: string): string {
+  return slug
+    .split("-")
+    .filter(Boolean)
+    .map((part) => (ACRONYMS.has(part) ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1)))
+    .join(" ");
 }
 
 export interface RegistrationInput {
@@ -71,10 +97,9 @@ export interface RegistrationInput {
 }
 
 /**
- * ASSUMED request body for POST /auth/register/student. Field choices come from the
- * `users` and `student_profiles` columns in V1__init_schema.sql (full_name, college, degree,
- * current_year 1-8). The frontend's "track" is intentionally NOT sent: its values (IoT, VLSI...)
- * have no counterpart in the backend `domains` taxonomy (V2 seed).
+ * Request body for POST /auth/register/student. The frontend's "track" is intentionally NOT sent
+ * (as `selectedDomain` or otherwise): its labels (IoT, VLSI, ...) are not yet mapped to backend
+ * domain slugs, and the backend asked us to send it only once that mapping is agreed.
  */
 export function toRegistrationBody(input: RegistrationInput) {
   return {

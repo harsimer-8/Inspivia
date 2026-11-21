@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const newPassword = asString(body?.newPassword);
     const confirmPassword = asString(body?.confirmPassword);
 
-    if (!token || token.length > 512) {
+    if (token.length < 20 || token.length > 256) {
       return jsonError(400, "Reset link is missing or expired. Please request a new one.", "VALIDATION_ERROR");
     }
     if (newPassword.length < PASSWORD_MIN || newPassword.length > PASSWORD_MAX) {
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
 
     const result = await backendRequest(AUTH_PATHS.resetPassword, { method: "POST", body: { token, newPassword } });
     if (!result.ok) {
-      if (result.status === 400 || result.status === 404 || result.status === 410) {
+      if (result.status === 400 || result.status === 404 || result.status === 410 || result.status === 422) {
         return jsonError(400, "Invalid or expired reset link. Please request a new password reset.", "INVALID_TOKEN");
       }
       return errorResponse(result);
