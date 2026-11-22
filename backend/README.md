@@ -17,6 +17,26 @@ Flyway SQL scripts from `src/main/resources/db/migration` and records them in
 `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_FROM`, and
 `FRONTEND_BASE_URL`.
 
+## Authentication
+
+Implemented endpoints are under `/api/v1`:
+
+- `POST /auth/register/student` creates a pending student profile and emails a verification link.
+- `POST /auth/verify-email`, `/auth/resend-verification`, `/auth/login`, `/auth/refresh`, `/auth/logout`,
+  `/auth/forgot-password`, and `/auth/reset-password` manage account verification and sessions.
+- `GET /auth/me` returns the authenticated user; `GET/PUT /students/me` reads or updates degree,
+  year, and selected domain (use a seeded domain slug such as `web-development`).
+
+Passwords are limited to 8?128 characters and stored as PBKDF2-SHA256 hashes. Refresh tokens are
+rotated, stored only as SHA-256 hashes, and reuse revokes the token family. Login/refresh return
+both tokens in JSON for the trusted Next.js server-to-server call. The Next.js server must store
+them in HttpOnly cookies and must not expose them to browser JavaScript.
+
+Set `FRONTEND_BASE_URL` to the deployed frontend origin. Verification and reset emails link to
+`/auth/verify-email?token=...` and `/auth/reset-password?token=...`, respectively. Track labels
+such as ?Applied AI? are not currently mapped to database domains; send a domain slug via
+`selectedDomain` once the frontend has an agreed mapping.
+
 Implemented HTTP behavior is limited to the four existing AI routes and the existing
 actuator health/info routes. The chat/context and conversation-store adapters read and
 write the migration-backed student, taxonomy, project-enrollment, `ai_conversations`,

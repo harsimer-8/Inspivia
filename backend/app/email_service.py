@@ -16,7 +16,7 @@ class EmailService:
         self.settings = settings
 
     def send_verification_email(self, to_email: str, token: str) -> None:
-        link = f"{self.settings.frontend_base_url.rstrip('/')}/verify-email?token={token}"
+        link = f"{self.settings.frontend_base_url.rstrip('/')}/auth/verify-email?token={token}"
         self._send(
             to_email,
             "Verify your Inspivia account",
@@ -24,7 +24,7 @@ class EmailService:
         )
 
     def send_password_reset_email(self, to_email: str, token: str) -> None:
-        link = f"{self.settings.frontend_base_url.rstrip('/')}/reset-password?token={token}"
+        link = f"{self.settings.frontend_base_url.rstrip('/')}/auth/reset-password?token={token}"
         self._send(
             to_email,
             "Reset your Inspivia password",
