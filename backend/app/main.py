@@ -27,7 +27,7 @@ from app.ai_service import AiApplicationService
 from app.ai_store import SqlAiConversationStore, SqlStudentContextProvider
 from app.config import Settings
 from app.db import build_engine, reflect_schema, run_migrations, session_factory
-from app.email_service import EmailService
+from app.email_service import EmailDeliveryError, EmailService
 from app.repositories import RepositoryRegistry
 from app.security import UserPrincipal, authenticate_header, bearer_principal, require_role
 
@@ -142,6 +142,20 @@ def create_app(
     @app.exception_handler(AiGatewayError)
     async def ai_error_handler(_: Request, error: AiGatewayError) -> JSONResponse:
         return JSONResponse(status_code=error.status_code, content={"detail": error.message})
+
+    @app.exception_handler(EmailDeliveryError)
+    async def email_error_handler(_request: Request, _error: EmailDeliveryError) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "type": "urn:inspivia:error:email",
+                "title": "EMAIL_DELIVERY_FAILED",
+                "status": 503,
+                "detail": "Transactional email could not be sent. Please retry.",
+                "code": "EMAIL_DELIVERY_FAILED",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(_: Request, error: RequestValidationError) -> JSONResponse:
