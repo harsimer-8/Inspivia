@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { backendRequest, errorResponse, jsonError } from "@/lib/server/backend";
-import { AUTH_PATHS, toRegistrationBody } from "@/lib/server/authContract";
+import { AUTH_PATHS, extractTokens, toRegistrationBody, toSessionUser } from "@/lib/server/authContract";
+import { setSessionCookies } from "@/lib/server/session";
 import {
   PASSWORD_MAX,
   PASSWORD_MIN,
@@ -52,10 +53,21 @@ export async function POST(req: NextRequest) {
   });
   if (!result.ok) return errorResponse(result);
 
-  // The backend plan creates accounts as PENDING_VERIFICATION, so registration does NOT sign the user in.
-  return NextResponse.json({
-    success: true,
-    message: "Account created. Check your inbox for a verification link to activate it.",
-    email,
-  });
+  const tokens = extractTokens(result.data);
+  if (!tokens) {
+    console.error("[auth] registration response did not contain an access token");
+    return jsonError(502, "Account created, but sign-in failed. Please sign in.", "BAD_UPSTREAM_RESPONSE");
+  }
+
+  const me = await backendRequest(AUTH_PATHS.me, { token: tokens.accessToken });
+  const user = me.ok ? toSessionUser(me.data) : null;
+  if (!user) {
+    return me.ok
+      ? jsonError(502, "Account created, but your profile could not be loaded. Please sign in.", "BAD_UPSTREAM_RESPONSE")
+      : errorResponse(me);
+  }
+
+  const response = NextResponse.json({ success: true, user });
+  setSessionCookies(response, tokens);
+  return response;
 }

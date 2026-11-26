@@ -55,8 +55,8 @@ export default function RegisterPage() {
         redirectOnUnauthorized: false,
       });
 
-      // Accounts start unverified, so send the student to the verification step rather than the dashboard.
-      router.push(`/auth/verify-email?email=${encodeURIComponent(formData.email.trim())}&sent=1`);
+      router.push("/dashboard");
+      router.refresh();
     } catch (err) {
       setError(errorMessage(err, "An unexpected error occurred during registration."));
     } finally {

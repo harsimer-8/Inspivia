@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, MetaData, String, Table, Uuid, create_engine
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, MetaData, String, Table, Uuid, create_engine, text
 from sqlalchemy.pool import StaticPool
 
 from app.auth import AuthService
@@ -114,10 +114,24 @@ def register(client: TestClient, email: str = "student@example.test") -> dict:
     return response.json()
 
 
-def test_register_verify_login_and_refresh_reuse_revokes_family(auth_client):
+def test_registration_activates_account_and_returns_session_without_email(auth_client):
     client, mail, engine = auth_client
-    register(client)
-    assert len(mail.verification) == 1
+    tokens = register(client)
+    assert set(tokens) == {"accessToken", "refreshToken"}
+    assert mail.verification == []
+    me = client.get(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {tokens['accessToken']}"},
+    )
+    assert me.status_code == 200
+    assert me.json()["email"] == "student@example.test"
+    with engine.connect() as connection:
+        user = connection.execute(
+            text("SELECT status, email_verified_at FROM users WHERE email = :email"),
+            {"email": "student@example.test"},
+        ).one()
+    assert user.status == "ACTIVE"
+    assert user.email_verified_at is not None
     assert client.post(
         "/api/v1/auth/register/student",
         json={
@@ -125,8 +139,6 @@ def test_register_verify_login_and_refresh_reuse_revokes_family(auth_client):
             "college": "College", "degree": "Degree", "currentYear": 1,
         },
     ).status_code == 409
-    token = mail.verification[0][1]
-    assert client.post("/api/v1/auth/verify-email", json={"token": token}).status_code == 200
     login = client.post(
         "/api/v1/auth/login",
         json={"email": "STUDENT@example.test", "password": "strong-password-123"},
@@ -141,10 +153,35 @@ def test_register_verify_login_and_refresh_reuse_revokes_family(auth_client):
     assert client.post("/api/v1/auth/refresh", json={"refreshToken": rotated.json()["refreshToken"]}).status_code == 401
 
 
+def test_legacy_pending_account_is_activated_on_password_login(auth_client):
+    client, _, engine = auth_client
+    register(client)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE users SET status = 'PENDING_VERIFICATION', email_verified_at = NULL "
+                "WHERE email = :email"
+            ),
+            {"email": "student@example.test"},
+        )
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "student@example.test", "password": "strong-password-123"},
+    )
+    assert login.status_code == 200
+    with engine.connect() as connection:
+        user = connection.execute(
+            text("SELECT status, email_verified_at FROM users WHERE email = :email"),
+            {"email": "student@example.test"},
+        ).one()
+    assert user.status == "ACTIVE"
+    assert user.email_verified_at is not None
+
+
 def test_student_profile_me_and_password_reset_revoke_refresh_tokens(auth_client):
     client, mail, _ = auth_client
     register(client)
-    client.post("/api/v1/auth/verify-email", json={"token": mail.verification[0][1]})
     tokens = client.post(
         "/api/v1/auth/login", json={"email": "student@example.test", "password": "strong-password-123"}
     ).json()

@@ -19,11 +19,6 @@ export async function POST(req: NextRequest) {
 
   const login = await backendRequest(AUTH_PATHS.login, { method: "POST", body: { email, password } });
   if (!login.ok) {
-    // Do not reveal whether the account exists or which credential was wrong.
-    // The backend only answers EMAIL_NOT_VERIFIED after the password was correct, so this reveals nothing.
-    if (login.error?.code === "EMAIL_NOT_VERIFIED") {
-      return jsonError(403, "Please verify your email before signing in. Check your inbox for the verification link.", "EMAIL_NOT_VERIFIED");
-    }
     if (login.status === 401 || login.status === 403) {
       return jsonError(401, "Invalid email or password.", "INVALID_CREDENTIALS");
     }

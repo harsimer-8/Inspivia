@@ -27,12 +27,12 @@ All of it is confined to `frontend/src/lib/server/authContract.ts`.
 
 | Frontend route | Backend call | Notes |
 |---|---|---|
-| `POST /api/auth/register` | `POST /auth/register/student` `{fullName,email,password,college,degree,currentYear}` | 201; account is `PENDING_VERIFICATION`, so the user is NOT signed in; 409 `EMAIL_ALREADY_EXISTS` |
-| `POST /api/auth/login` | `POST /auth/login` `{email,password}` → `{accessToken,refreshToken}` | 401 `INVALID_CREDENTIALS`, 403 `EMAIL_NOT_VERIFIED`; tokens go into HttpOnly cookies, never to the browser |
+| `POST /api/auth/register` | `POST /auth/register/student` `{fullName,email,password,college,degree,currentYear}` | 201; account is active and tokens are set in HttpOnly cookies; 409 `EMAIL_ALREADY_EXISTS` |
+| `POST /api/auth/login` | `POST /auth/login` `{email,password}` → `{accessToken,refreshToken}` | 401 `INVALID_CREDENTIALS`; pending legacy accounts activate after a correct password; tokens never go to browser JavaScript |
 | (internal, on 401/expiry) | `POST /auth/refresh` `{refreshToken}` | rotated; reuse revokes the family |
 | `POST /api/auth/logout` | `POST /auth/logout` `{refreshToken}` | 204; cookies cleared even if the backend is unreachable |
 | `GET /api/auth/me` | `GET /auth/me` + `GET /students/me` | merged into `{id,email,name,role,course,year,enrolledTrack}` |
-| `POST /api/auth/verify-email` | `POST /auth/verify-email` `{token}` / `POST /auth/resend-verification` `{email}` | token 20-256 chars |
+| `POST /api/auth/verify-email` | legacy verification endpoints | Not required for registration or login |
 | `POST /api/auth/reset-password` | `POST /auth/forgot-password` `{email}` / `POST /auth/reset-password` `{token,newPassword}` | generic response whether or not the account exists |
 | `POST /api/ai-companion` | `POST /ai/chat` `{message (<=4000), conversationId?}` | STUDENT role only |
 
@@ -58,11 +58,11 @@ Do **not** set `GEMINI_API_KEY` or `AI_SERVICE_API_KEY` on Vercel. In production
 ## Deployment
 
 1. Backend (Render): implement the endpoints above; set `CORS_ALLOWED_ORIGINS` to the Vercel origin (only needed for direct browser access),
-   `FRONTEND_BASE_URL` to the Vercel URL so emailed verify/reset links point to `/auth/verify-email?token=` and `/auth/reset-password?token=`.
+   `FRONTEND_BASE_URL` to the Vercel URL so password-reset links point to `/auth/reset-password?token=`.
 2. Vercel: import the repo, set **Root Directory = `frontend`**, framework Next.js, add `BACKEND_API_URL`, deploy.
    `/api/ai-companion` sets `maxDuration = 60`; Vercel Hobby allows up to 60s.
 3. Render free instances sleep; first request after idle can exceed the 15s auth timeout — retry or use a paid/always-on instance.
-4. Smoke test: register → email link → sign in → `/dashboard` → AI companion message → sign out.
+4. Smoke test: register → `/dashboard` → sign out → sign in → `/dashboard`.
 
 ## Test status
 

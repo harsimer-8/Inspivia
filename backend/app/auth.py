@@ -114,9 +114,10 @@ class AuthService:
         self.reset_tokens = metadata.tables["public.password_reset_tokens"] if "public.password_reset_tokens" in metadata.tables else metadata.tables["password_reset_tokens"]
         self.domains = metadata.tables.get("public.domains", metadata.tables.get("domains"))
 
-    def register_student(self, payload: RegisterStudentInput) -> None:
+    def register_student(self, payload: RegisterStudentInput) -> dict[str, str]:
         email = payload.email.strip().lower()
-        user_id, raw_token = uuid.uuid4(), secrets.token_urlsafe(32)
+        user_id, refresh_token = uuid.uuid4(), secrets.token_urlsafe(48)
+        family_id, token_id = uuid.uuid4(), uuid.uuid4()
         now = datetime.now(timezone.utc)
         try:
             with self.engine.begin() as connection:
@@ -129,7 +130,8 @@ class AuthService:
                     insert(self.users).values(
                         id=user_id, email=email, password_hash=_password_hash(payload.password),
                         full_name=payload.full_name, role="STUDENT",
-                        status="PENDING_VERIFICATION", created_at=now, updated_at=now,
+                        status="ACTIVE", email_verified_at=now, last_login_at=now,
+                        created_at=now, updated_at=now,
                     )
                 )
                 connection.execute(
@@ -139,14 +141,19 @@ class AuthService:
                     )
                 )
                 connection.execute(
-                    insert(self.verification_tokens).values(
-                        id=uuid.uuid4(), user_id=user_id, token_hash=_hash_token(raw_token),
-                        expires_at=now + _VERIFICATION_TTL, created_at=now,
+                    insert(self.refresh_tokens).values(
+                        id=token_id, user_id=user_id, token_hash=_hash_token(refresh_token),
+                        family_id=family_id,
+                        expires_at=now + timedelta(seconds=self.settings.jwt_refresh_ttl_seconds),
+                        created_at=now,
                     )
                 )
         except IntegrityError:
             raise HTTPException(status_code=409, detail={"code": "EMAIL_ALREADY_EXISTS", "message": "An account with this email already exists"}) from None
-        self.mail.send_verification_email(email, raw_token)
+        return self._token_response(
+            {"id": user_id, "email": email, "role": "STUDENT"},
+            refresh_token,
+        )
 
     def login(self, payload: LoginInput) -> dict[str, str]:
         with self.engine.connect() as connection:
@@ -155,14 +162,20 @@ class AuthService:
             ).mappings().one_or_none()
         if user is None or not _password_matches(payload.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail={"code": "INVALID_CREDENTIALS", "message": "Email or password is incorrect"})
-        if user["status"] != "ACTIVE" or user["email_verified_at"] is None:
-            raise HTTPException(status_code=403, detail={"code": "EMAIL_NOT_VERIFIED", "message": "Verify your email before signing in"})
+        if user["status"] not in {"ACTIVE", "PENDING_VERIFICATION"}:
+            raise HTTPException(status_code=403, detail={"code": "ACCOUNT_DISABLED", "message": "This account is not available for sign-in"})
         now = datetime.now(timezone.utc)
+        verified_at = user["email_verified_at"] or now
         refresh_token = secrets.token_urlsafe(48)
         family_id, token_id = uuid.uuid4(), uuid.uuid4()
         with self.engine.begin() as connection:
             connection.execute(
-                update(self.users).where(self.users.c.id == user["id"]).values(last_login_at=now, updated_at=now)
+                update(self.users).where(self.users.c.id == user["id"]).values(
+                    status="ACTIVE",
+                    email_verified_at=verified_at,
+                    last_login_at=now,
+                    updated_at=now,
+                )
             )
             connection.execute(
                 insert(self.refresh_tokens).values(
@@ -391,8 +404,7 @@ def _service(request: Request) -> AuthService:
 
 @router.post("/auth/register/student", status_code=status.HTTP_201_CREATED)
 def register_student(payload: RegisterStudentInput, service: AuthService = Depends(_service)) -> dict[str, str]:
-    service.register_student(payload)
-    return {"message": "Registration successful. Check your email to verify your account."}
+    return service.register_student(payload)
 
 
 @router.post("/auth/login")
